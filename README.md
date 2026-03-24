@@ -101,12 +101,12 @@ rows = PinballStrategy.expected_value_table(T=20, J=10)
 
 ## 手机端使用（PWA 离线应用）— 推荐
 
-`pwa/` 目录是一个纯前端 PWA 应用，**无需服务器，不需要同一 WiFi**。
+`docs/` 目录是一个纯前端 PWA 应用，**无需服务器，不需要同一 WiFi**。
 
 ### 部署到 GitHub Pages（免费）
 
 1. 将本仓库推送到 GitHub
-2. 进入仓库 Settings → Pages → Source 选择 `main` 分支，目录选 `/pwa`
+2. 进入仓库 Settings → Pages → Source 选择 `main` 分支，目录选 `/docs`
 3. 保存后访问 `https://<你的用户名>.github.io/<仓库名>/`
 4. 手机浏览器打开该地址 → 点"添加到主屏幕" → 像原生 App 一样使用
 5. **离线可用**：首次加载后无需网络
@@ -114,7 +114,7 @@ rows = PinballStrategy.expected_value_table(T=20, J=10)
 ### 本地预览
 
 ```bash
-cd pwa
+cd docs
 python -m http.server 8080
 # 浏览器打开 http://127.0.0.1:8080
 ```
