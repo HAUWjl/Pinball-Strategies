@@ -242,14 +242,53 @@
   }
   .history-item .win { color: var(--green); }
   .history-item .lose { color: var(--muted); }
+
+  /* Machine selection */
+  .machine-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+  .machine-card {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--accent); border-radius: 10px; padding: 14px 16px;
+    cursor: pointer; transition: background .15s, border-color .15s;
+    border: 2px solid transparent;
+  }
+  .machine-card:active { opacity: 0.7; }
+  .machine-card .mc-info { flex: 1; }
+  .machine-card .mc-name { font-weight: 700; font-size: 1.05em; }
+  .machine-card .mc-detail { font-size: 0.8em; color: var(--muted); margin-top: 4px; }
+  .machine-card .mc-del {
+    width: 32px; height: 32px; border-radius: 50%; border: none;
+    background: rgba(233,69,96,0.2); color: var(--highlight);
+    font-size: 1.1em; cursor: pointer; flex-shrink: 0; margin-left: 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .machine-card .mc-del:active { background: rgba(233,69,96,0.5); }
+  .add-machine-row {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .add-machine-row input {
+    flex: 1; padding: 10px 12px; border: 1px solid #333;
+    border-radius: 8px; background: var(--bg); color: var(--text); font-size: 1em;
+  }
+  .add-machine-row input:focus { outline: none; border-color: var(--green); }
 </style>
 </head>
 <body>
 
 <h1>🎯 弹珠机策略顾问</h1>
 
+<!-- ====== Step 0: 机器选择 ====== -->
+<div id="machinePanel" class="card">
+  <h2>🎰 选择机器</h2>
+  <div id="machineList" class="machine-list"></div>
+  <div id="machineEmpty" style="text-align:center;color:var(--muted);font-size:0.9em;padding:12px;">暂无机器，请添加</div>
+  <div class="add-machine-row">
+    <input type="text" id="newMachineName" placeholder="输入机器编号/名称" maxlength="30">
+    <button class="btn-primary" style="width:auto;padding:10px 20px;margin:0;" onclick="addMachine()">添加</button>
+  </div>
+</div>
+
 <!-- ====== Step 1: 配置 ====== -->
-<div id="setupPanel" class="card">
+<div id="setupPanel" class="card hidden">
   <h2>⚙️ 机器参数</h2>
   <div class="row">
     <div>
@@ -282,7 +321,7 @@
   <div class="card" style="padding:10px 16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85em;">
       <span id="configSummary" style="color:var(--muted);"></span>
-      <button class="btn-small btn-outline" onclick="resetSetup()">重置</button>
+      <button class="btn-small btn-outline" onclick="resetSetup()">返回首页</button>
     </div>
   </div>
 
@@ -461,10 +500,11 @@ class PinballStrategy {
     return Math.max(MIN_BET, Math.min(MAX_BET, nOptimal));
   }
 
-  // ── Persistence via localStorage ──
+  // ── Persistence via localStorage (per machine) ──
   _save() {
+    if (!currentMachineId) return;
     try {
-      localStorage.setItem('pb_state', JSON.stringify({
+      localStorage.setItem('pb_state_' + currentMachineId, JSON.stringify({
         T: this.T, J: this.J, priority: this.priority,
         priorWeight: this.priorWeight,
         landingCounts: this.landingCounts,
@@ -473,9 +513,9 @@ class PinballStrategy {
     } catch(e) {}
   }
 
-  static load() {
+  static load(machineId) {
     try {
-      const raw = localStorage.getItem('pb_state');
+      const raw = localStorage.getItem('pb_state_' + machineId);
       if (!raw) return null;
       const d = JSON.parse(raw);
       const s = new PinballStrategy(d.T, d.J, d.priority, d.priorWeight);
@@ -487,38 +527,153 @@ class PinballStrategy {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Machine Management
+// ═══════════════════════════════════════════════════════════════════
+function getMachines() {
+  try {
+    const raw = localStorage.getItem('pb_machines');
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
+}
+
+function saveMachines(machines) {
+  try { localStorage.setItem('pb_machines', JSON.stringify(machines)); } catch(e) {}
+}
+
+function addMachine() {
+  const input = document.getElementById('newMachineName');
+  const name = input.value.trim();
+  if (!name) { showToast('请输入机器名称'); return; }
+  const machines = getMachines();
+  if (machines.some(m => m.id === name)) { showToast('该名称已存在'); return; }
+  machines.push({ id: name, createdAt: new Date().toLocaleString() });
+  saveMachines(machines);
+  input.value = '';
+  renderMachineList();
+  showToast('已添加: ' + name);
+}
+
+function deleteMachine(id) {
+  if (!confirm('确定删除机器「' + id + '」及其所有数据？')) return;
+  let machines = getMachines();
+  machines = machines.filter(m => m.id !== id);
+  saveMachines(machines);
+  try {
+    localStorage.removeItem('pb_state_' + id);
+    localStorage.removeItem('pb_history_' + id);
+  } catch(e) {}
+  renderMachineList();
+  showToast('已删除: ' + id);
+}
+
+function selectMachine(id) {
+  currentMachineId = id;
+  const s = PinballStrategy.load(id);
+  if (s) {
+    // Existing machine with data → go directly to game
+    strategy = s;
+    try {
+      const h = localStorage.getItem('pb_history_' + id);
+      if (h) gameHistory = JSON.parse(h);
+      else gameHistory = [];
+    } catch(e) { gameHistory = []; }
+    showPanel('game');
+    document.getElementById('configSummary').textContent =
+      `[${id}] T=${s.T}  J=${s.J}  ${s.priority==='cards'?'积分卡优先':'珠子优先'}`;
+    buildMultButtons();
+    buildSlotGrid();
+    buildRecordGrid();
+    renderEVTable(PinballStrategy.expectedValueTable(s.T, s.J));
+    refreshProbs();
+    renderHistory();
+  } else {
+    // New machine, no data → go to setup
+    gameHistory = [];
+    showPanel('setup');
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function renderMachineList() {
+  const machines = getMachines();
+  const list = document.getElementById('machineList');
+  const empty = document.getElementById('machineEmpty');
+  if (machines.length === 0) {
+    list.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  list.innerHTML = '';
+  machines.forEach(m => {
+    const safe = escHtml(m.id);
+    const s = PinballStrategy.load(m.id);
+    const detail = s
+      ? `T=${s.T} J=${s.J} | ${s.priority==='cards'?'积分卡优先':'珠子优先'} | ${s.totalPlays} 局`
+      : '尚未配置';
+    const card = document.createElement('div');
+    card.className = 'machine-card';
+    card.innerHTML = `<div class="mc-info"><div class="mc-name">${safe}</div><div class="mc-detail">${detail}</div></div>`;
+    card.addEventListener('click', () => selectMachine(m.id));
+    const del = document.createElement('button');
+    del.className = 'mc-del';
+    del.textContent = '✕';
+    del.addEventListener('click', ev => { ev.stopPropagation(); deleteMachine(m.id); });
+    card.appendChild(del);
+    list.appendChild(card);
+  });
+}
+
+function showPanel(name) {
+  document.getElementById('machinePanel').classList.add('hidden');
+  document.getElementById('setupPanel').classList.add('hidden');
+  document.getElementById('gamePanel').classList.add('hidden');
+  document.getElementById('resultPanel').classList.add('hidden');
+  if (name === 'machine') document.getElementById('machinePanel').classList.remove('hidden');
+  if (name === 'setup') document.getElementById('setupPanel').classList.remove('hidden');
+  if (name === 'game') {
+    document.getElementById('gamePanel').classList.remove('hidden');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // UI Logic
 // ═══════════════════════════════════════════════════════════════════
 let strategy = null;
+let currentMachineId = null;
 let selectedMult = null;
 let selectedLitSlots = new Set();
 let recordSlotSelected = null;
 let gameHistory = [];
 
-// ── Try restore from localStorage ──
-(function tryRestore() {
-  const s = PinballStrategy.load();
-  if (s) {
-    strategy = s;
-    try {
-      const h = localStorage.getItem('pb_history');
-      if (h) gameHistory = JSON.parse(h);
-    } catch(e) {}
-    // Auto-enter game mode
-    document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('setupPanel').classList.add('hidden');
-      document.getElementById('gamePanel').classList.remove('hidden');
-      document.getElementById('configSummary').textContent =
-        `T=${s.T}  J=${s.J}  ${s.priority==='cards'?'积分卡优先':'珠子优先'}`;
-      buildMultButtons();
-      buildSlotGrid();
-      buildRecordGrid();
-      renderEVTable(PinballStrategy.expectedValueTable(s.T, s.J));
-      refreshProbs();
-      renderHistory();
-    });
-  }
+// ── Migrate old single-machine data if present ──
+(function migrateOldData() {
+  try {
+    const oldState = localStorage.getItem('pb_state');
+    if (oldState) {
+      const machines = getMachines();
+      const migId = '默认机器';
+      if (!machines.some(m => m.id === migId)) {
+        machines.push({ id: migId, createdAt: new Date().toLocaleString() });
+        saveMachines(machines);
+      }
+      localStorage.setItem('pb_state_' + migId, oldState);
+      const oldHist = localStorage.getItem('pb_history');
+      if (oldHist) localStorage.setItem('pb_history_' + migId, oldHist);
+      localStorage.removeItem('pb_state');
+      localStorage.removeItem('pb_history');
+    }
+  } catch(e) {}
 })();
+
+// ── Init: always show machine list ──
+document.addEventListener('DOMContentLoaded', () => {
+  renderMachineList();
+  showPanel('machine');
+});
 
 function initMachine() {
   const T = parseInt(document.getElementById('inputT').value) || 30;
@@ -527,16 +682,16 @@ function initMachine() {
   const prior = parseFloat(document.getElementById('inputPrior').value) || 24;
 
   if (T < 1 || J < 1) { showToast('T 和 J 必须 >= 1'); return; }
+  if (!currentMachineId) { showToast('未选择机器'); return; }
 
   strategy = new PinballStrategy(T, J, priority, prior);
   strategy._save();
   gameHistory = [];
-  try { localStorage.setItem('pb_history', '[]'); } catch(e) {}
+  try { localStorage.setItem('pb_history_' + currentMachineId, '[]'); } catch(e) {}
 
-  document.getElementById('setupPanel').classList.add('hidden');
-  document.getElementById('gamePanel').classList.remove('hidden');
+  showPanel('game');
   document.getElementById('configSummary').textContent =
-    `T=${T}  J=${J}  ${priority==='cards'?'积分卡优先':'珠子优先'}`;
+    `[${currentMachineId}] T=${T}  J=${J}  ${priority==='cards'?'积分卡优先':'珠子优先'}`;
 
   buildMultButtons();
   buildSlotGrid();
@@ -548,11 +703,10 @@ function initMachine() {
 
 function resetSetup() {
   strategy = null;
-  try { localStorage.removeItem('pb_state'); localStorage.removeItem('pb_history'); } catch(e){}
+  currentMachineId = null;
   gameHistory = [];
-  document.getElementById('setupPanel').classList.remove('hidden');
-  document.getElementById('gamePanel').classList.add('hidden');
-  document.getElementById('resultPanel').classList.add('hidden');
+  renderMachineList();
+  showPanel('machine');
 }
 
 // ── Multiplier buttons ──
@@ -699,7 +853,9 @@ function prepareNextRound() {
 // ── History ──
 function addHistory(mult, slot, win, bet) {
   gameHistory.push({mult, slot: slot+1, win, bet, time: new Date().toLocaleTimeString()});
-  try { localStorage.setItem('pb_history', JSON.stringify(gameHistory)); } catch(e) {}
+  if (currentMachineId) {
+    try { localStorage.setItem('pb_history_' + currentMachineId, JSON.stringify(gameHistory)); } catch(e) {}
+  }
   renderHistory();
 }
 
