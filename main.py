@@ -10,6 +10,7 @@ Usage:
 import sys
 from pinball_strategy import (
     NUM_SLOTS,
+    MIN_BET,
     MAX_BET,
     DEFAULT_MULTIPLIER_SLOTS,
     PinballStrategy,
@@ -152,7 +153,7 @@ def _run_round(strategy: PinballStrategy) -> None:
         elif rec["marble_roi"] == 1.0:
             print(cyan("  ≈ 收支平衡，投珠数对期望无影响。"))
         else:
-            print(yellow("  ✗ 期望负收益，建议仅投最低数量 (T = " + str(strategy.T) + ")。"))
+            print(yellow(f"  ✗ 期望负收益，建议仅投最低数量 ({MIN_BET} 颗)。"))
     else:
         # card priority: the bet is already optimised for card yield
         if rec["marble_roi"] >= 1.0:
@@ -193,7 +194,7 @@ def main() -> None:
 
     # ── Initialise machine parameters ─────────────────────────────────────────
     print(bold("机器参数设置"))
-    T = _read_int("  T 值 (每局基础投珠数/最低投珠数, 1~99): ", 1, MAX_BET)
+    T = _read_int("  T 值 (积分卡分母：每T个返珠=1积分卡，通常20~50): ", 1, 9999)
     J = _read_int("  J 值 (单次中奖最多积分卡数, 1~9999): ", 1, 9999)
     priority = _read_choice(
         "  优先目标 (c=积分卡优先 / m=珠子收益优先): ", ["c", "m"]

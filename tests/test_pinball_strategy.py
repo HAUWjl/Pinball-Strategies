@@ -7,6 +7,7 @@ import pytest
 
 from pinball_strategy import (
     NUM_SLOTS,
+    MIN_BET,
     MAX_BET,
     DEFAULT_MULTIPLIER_SLOTS,
     PinballStrategy,
@@ -17,44 +18,49 @@ from pinball_strategy import (
 
 @pytest.fixture()
 def strategy_cards():
-    """T=5, J=20, priority='cards'"""
-    return PinballStrategy(T=5, J=20, priority="cards")
+    """T=20 (score-card divisor), J=100, priority='cards'"""
+    return PinballStrategy(T=20, J=100, priority="cards")
 
 
 @pytest.fixture()
 def strategy_marbles():
-    """T=5, J=20, priority='marbles'"""
-    return PinballStrategy(T=5, J=20, priority="marbles")
+    """T=20 (score-card divisor), J=100, priority='marbles'"""
+    return PinballStrategy(T=20, J=100, priority="marbles")
 
 
 # ── Construction ───────────────────────────────────────────────────────────────
 
 class TestConstruction:
     def test_valid_construction(self):
-        s = PinballStrategy(T=3, J=10, priority="cards")
-        assert s.T == 3
+        s = PinballStrategy(T=20, J=10, priority="cards")
+        assert s.T == 20
         assert s.J == 10
         assert s.priority == "cards"
 
     def test_default_priority_is_cards(self):
-        s = PinballStrategy(T=1, J=1)
+        s = PinballStrategy(T=20, J=1)
         assert s.priority == "cards"
 
     def test_invalid_T_zero(self):
         with pytest.raises(ValueError):
             PinballStrategy(T=0, J=10)
 
-    def test_invalid_T_too_large(self):
+    def test_invalid_T_negative(self):
         with pytest.raises(ValueError):
-            PinballStrategy(T=100, J=10)
+            PinballStrategy(T=-1, J=10)
+
+    def test_t_above_99_is_valid(self):
+        # T is the score-card divisor, not a bet, so values > 99 are allowed
+        s = PinballStrategy(T=100, J=10)
+        assert s.T == 100
 
     def test_invalid_J(self):
         with pytest.raises(ValueError):
-            PinballStrategy(T=5, J=0)
+            PinballStrategy(T=20, J=0)
 
     def test_invalid_priority(self):
         with pytest.raises(ValueError):
-            PinballStrategy(T=5, J=10, priority="unknown")
+            PinballStrategy(T=20, J=10, priority="unknown")
 
 
 # ── Landing probability ────────────────────────────────────────────────────────
@@ -73,7 +79,7 @@ class TestLandingProbability:
         assert abs(sum(probs) - 1.0) < 1e-9
 
     def test_single_landing_updates_distribution(self):
-        s = PinballStrategy(T=5, J=20)
+        s = PinballStrategy(T=20, J=100)
         for _ in range(10):
             s.record_landing(0)  # always slot 0
         probs = s.get_landing_probs()
@@ -106,7 +112,7 @@ class TestWinProbability:
             assert strategy_cards.win_probability(lit) == pytest.approx(expected)
 
     def test_skewed_win_prob(self):
-        s = PinballStrategy(T=1, J=10)
+        s = PinballStrategy(T=20, J=10)
         # Record landings only in slot 0
         for _ in range(100):
             s.record_landing(0)
@@ -124,7 +130,7 @@ class TestWinProbability:
 class TestOptimalBetMarbles:
     def test_bet_max_when_ev_positive(self):
         """A very high p_win forces EV > 1 for any non-trivial multiplier."""
-        s = PinballStrategy(T=5, J=20, priority="marbles")
+        s = PinballStrategy(T=20, J=100, priority="marbles")
         # Force p_win = 1.0 (marble always falls in slot 0)
         for _ in range(100):
             s.record_landing(0)
@@ -132,21 +138,21 @@ class TestOptimalBetMarbles:
         assert bet == MAX_BET
 
     def test_bet_minimum_when_ev_negative(self, strategy_marbles):
-        # Uniform distribution: 2x → EV = (4/12)*2 = 2/3 < 1 → bet T
+        # Uniform distribution: 2x → EV = (4/12)*2 = 2/3 < 1 → bet MIN_BET
         bet = strategy_marbles.optimal_bet(multiplier=2, lit_slots=[0, 1, 2, 3])
-        assert bet == strategy_marbles.T
+        assert bet == MIN_BET
 
     def test_4x_multiplier_ev_equals_one(self, strategy_marbles):
-        # 4x, 3 lit slots: EV = (3/12)*4 = 1.0 → bet T (not strictly > 1)
+        # 4x, 3 lit slots: EV = (3/12)*4 = 1.0 → bet MIN_BET (not strictly > 1)
         bet = strategy_marbles.optimal_bet(multiplier=4, lit_slots=[0, 1, 2])
-        assert bet == strategy_marbles.T
+        assert bet == MIN_BET
 
-    def test_bet_clamped_to_T(self, strategy_marbles):
+    def test_bet_clamped_to_MIN_BET(self, strategy_marbles):
         bet = strategy_marbles.optimal_bet(multiplier=2, lit_slots=[0, 1, 2, 3])
-        assert bet >= strategy_marbles.T
+        assert bet >= MIN_BET
 
     def test_bet_clamped_to_max(self):
-        s = PinballStrategy(T=1, J=5, priority="marbles")
+        s = PinballStrategy(T=20, J=100, priority="marbles")
         for _ in range(100):
             s.record_landing(0)  # p_win = 1 for slot 0
         bet = s.optimal_bet(multiplier=2, lit_slots=[0])
@@ -158,35 +164,37 @@ class TestOptimalBetMarbles:
 class TestOptimalBetCards:
     def test_optimal_bet_formula(self):
         """
-        For card priority, optimal_bet = max(T, min(99, ceil(J / mult))).
+        For card priority, optimal_bet = max(MIN_BET, min(99, ceil(T*J/mult))).
         """
-        T, J = 5, 20
+        T, J = 20, 100
         s = PinballStrategy(T=T, J=J, priority="cards")
         for mult in DEFAULT_MULTIPLIER_SLOTS:
-            expected = max(T, min(MAX_BET, math.ceil(J / mult)))
+            expected = max(MIN_BET, min(MAX_BET, math.ceil(T * J / mult)))
             got = s.optimal_bet(mult, list(range(DEFAULT_MULTIPLIER_SLOTS[mult])))
             assert got == expected, f"mult={mult}: expected {expected}, got {got}"
 
-    def test_card_bet_at_least_T(self):
-        s = PinballStrategy(T=10, J=1, priority="cards")
-        # ceil(1/10) = 1 < T=10, so clamp to T
+    def test_card_bet_at_least_MIN_BET(self):
+        # ceil(T*J/mult) < MIN_BET → clamp to MIN_BET
+        s = PinballStrategy(T=1, J=1, priority="cards")
+        # ceil(1*1/10)=1 < MIN_BET=5 → should return MIN_BET
         bet = s.optimal_bet(10, [0])
-        assert bet == 10
+        assert bet == MIN_BET
 
     def test_card_bet_at_most_max(self):
-        s = PinballStrategy(T=1, J=9999, priority="cards")
-        # ceil(9999/2) = 5000 > 99 → clamp to 99
+        s = PinballStrategy(T=20, J=9999, priority="cards")
+        # ceil(20*9999/2)=99990 > 99 → clamp to 99
         bet = s.optimal_bet(2, [0, 1, 2, 3])
         assert bet == MAX_BET
 
-    def test_j_divisible_by_mult(self):
-        s = PinballStrategy(T=1, J=20, priority="cards")
-        # 2x: ceil(20/2)=10
-        assert s.optimal_bet(2, [0, 1, 2, 3]) == 10
-        # 4x: ceil(20/4)=5
-        assert s.optimal_bet(4, [0, 1, 2]) == 5
-        # 10x: ceil(20/10)=2
-        assert s.optimal_bet(10, [0]) == 2
+    def test_card_bet_typical_machine(self):
+        # T=20, J=10: optimal N per multiplier
+        s = PinballStrategy(T=20, J=10, priority="cards")
+        # 2x: ceil(20*10/2)=100 → clamped to 99
+        assert s.optimal_bet(2, [0, 1, 2, 3]) == 99
+        # 4x: ceil(20*10/4)=50
+        assert s.optimal_bet(4, [0, 1, 2]) == 50
+        # 10x: ceil(20*10/10)=20
+        assert s.optimal_bet(10, [0]) == 20
 
 
 # ── Recommend ─────────────────────────────────────────────────────────────────
@@ -219,34 +227,46 @@ class TestRecommend:
 
     def test_recommend_optimal_bet_in_range(self, strategy_cards):
         rec = strategy_cards.recommend(8, [0])
-        assert strategy_cards.T <= rec["optimal_bet"] <= MAX_BET
+        assert MIN_BET <= rec["optimal_bet"] <= MAX_BET
+
+    def test_recommend_score_cards_uses_T_divisor(self):
+        """score cards = floor(bet * mult / T), capped at J"""
+        T, J = 20, 10
+        s = PinballStrategy(T=T, J=J, priority="marbles")
+        # Force p_win = 1 so expected_cards = actual cards per win
+        for _ in range(100):
+            s.record_landing(0)
+        # With marble priority and p_win=1 (EV>1), bet=MAX_BET=99
+        rec = s.recommend(multiplier=4, lit_slots=[0])
+        expected_cards = min(99 * 4 // T, J)  # min(floor(396/20), 10) = min(19, 10) = 10
+        assert rec["expected_score_cards"] == pytest.approx(expected_cards, rel=1e-3)
 
 
 # ── Expected-value table ──────────────────────────────────────────────────────
 
 class TestExpectedValueTable:
     def test_table_has_all_multipliers(self):
-        rows = PinballStrategy.expected_value_table(T=5, J=20)
+        rows = PinballStrategy.expected_value_table(T=20, J=100)
         mults = {r["multiplier"] for r in rows}
         assert mults == set(DEFAULT_MULTIPLIER_SLOTS.keys())
 
     def test_4x_and_6x_break_even(self):
-        rows = PinballStrategy.expected_value_table(T=5, J=20)
+        rows = PinballStrategy.expected_value_table(T=20, J=100)
         for r in rows:
             if r["multiplier"] in (4, 6):
                 assert r["marble_ev_ratio"] == pytest.approx(1.0)
 
     def test_2x_and_8x_negative_ev(self):
-        rows = PinballStrategy.expected_value_table(T=5, J=20)
+        rows = PinballStrategy.expected_value_table(T=20, J=100)
         for r in rows:
             if r["multiplier"] in (2, 8):
                 assert r["marble_ev_ratio"] < 1.0
 
     def test_card_optimal_bet_formula(self):
-        T, J = 5, 20
+        T, J = 20, 100
         rows = PinballStrategy.expected_value_table(T=T, J=J)
         for r in rows:
-            expected = max(T, min(MAX_BET, math.ceil(J / r["multiplier"])))
+            expected = max(MIN_BET, min(MAX_BET, math.ceil(T * J / r["multiplier"])))
             assert r["card_optimal_bet"] == expected
 
 
@@ -255,14 +275,14 @@ class TestExpectedValueTable:
 class TestCustomMultiplierSlots:
     def test_custom_slots_accepted(self):
         custom = {3: 6, 5: 3, 9: 1}
-        s = PinballStrategy(T=2, J=10, multiplier_slots=custom)
+        s = PinballStrategy(T=20, J=10, multiplier_slots=custom)
         # Should not raise; use the custom mapping
         rec = s.recommend(3, list(range(6)))
         assert rec["multiplier"] == 3
 
     def test_ev_table_respects_custom_slots(self):
         custom = {3: 6}
-        rows = PinballStrategy.expected_value_table(T=1, J=6, multiplier_slots=custom)
+        rows = PinballStrategy.expected_value_table(T=20, J=6, multiplier_slots=custom)
         assert len(rows) == 1
         assert rows[0]["multiplier"] == 3
         assert rows[0]["lit_slots"] == 6

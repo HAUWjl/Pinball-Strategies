@@ -3,7 +3,7 @@
 Optimal strategy module for the 12-slot pinball machine.
 
 Rules:
-- Each play costs T small marbles (minimum bet = T).
+- The machine requires a minimum of MIN_BET (5) small marbles to start each play.
 - After pressing the button the multiplier is revealed (2x/4x/6x/8x/10x).
 - Typical slot distribution per multiplier:
     2x  -> 4 slots lit   (P_win ≈ 4/12)
@@ -12,7 +12,9 @@ Rules:
     8x  -> 1 slot lit    (P_win ≈ 1/12)
     10x -> 1 slot lit    (P_win ≈ 1/12)
 - Before shooting you may add more marbles up to a total of 99.
-- A win returns (multiplier × total_bet) marbles and min(multiplier × total_bet, J) score cards.
+- A win returns (multiplier × total_bet) marbles and
+  min(floor(multiplier × total_bet / T), J) score cards,
+  where T is the machine's score-card divisor (typically 20–50).
 """
 
 import math
@@ -20,6 +22,9 @@ from typing import Dict, List, Optional, Tuple
 
 # Number of physical slots on the machine
 NUM_SLOTS = 12
+
+# Absolute minimum marbles required to start a play
+MIN_BET = 5
 
 # Maximum total marbles per play
 MAX_BET = 99
@@ -46,7 +51,8 @@ class PinballStrategy:
     Parameters
     ----------
     T : int
-        Base cost per play in small marbles (minimum bet, 1 ≤ T ≤ 99).
+        Score-card divisor: every T returned marbles (bet × multiplier) yield
+        one score card.  Typically 20–50 (must be ≥ 1).
     J : int
         Maximum number of score cards awarded per winning play (J ≥ 1).
     priority : str
@@ -64,8 +70,8 @@ class PinballStrategy:
         priority: str = "cards",
         multiplier_slots: Optional[Dict[int, int]] = None,
     ) -> None:
-        if T < 1 or T > MAX_BET:
-            raise ValueError(f"T must be between 1 and {MAX_BET}, got {T}")
+        if T < 1:
+            raise ValueError(f"T must be at least 1, got {T}")
         if J < 1:
             raise ValueError(f"J must be at least 1, got {J}")
         if priority not in ("cards", "marbles"):
@@ -145,7 +151,7 @@ class PinballStrategy:
         Returns
         -------
         int
-            Total marbles to commit (between T and MAX_BET inclusive).
+            Total marbles to commit (between MIN_BET and MAX_BET inclusive).
         """
         p_win = self.win_probability(lit_slots)
 
@@ -173,7 +179,7 @@ class PinballStrategy:
         p_win = self.win_probability(lit_slots)
         bet = self.optimal_bet(multiplier, lit_slots)
         expected_marbles = multiplier * bet * p_win
-        expected_cards = p_win * min(multiplier * bet, self.J)
+        expected_cards = p_win * min(multiplier * bet // self.T, self.J)
         roi = expected_marbles / bet if bet > 0 else 0.0
 
         return {
@@ -207,12 +213,13 @@ class PinballStrategy:
         for mult, n_lit in sorted(ms.items()):
             p_win = n_lit / NUM_SLOTS
 
-            # --- Marble priority: bet T (minimum) ---
+            # --- Marble priority: bet MIN_BET (minimum) ---
             ev_marbles_per_marble = mult * p_win
 
-            # --- Card priority: bet ceil(J / mult) clamped to [T, MAX_BET] ---
-            n_card = max(T, min(MAX_BET, math.ceil(J / mult)))
-            cards_per_marble = p_win * min(mult * n_card, J) / n_card if n_card else 0
+            # --- Card priority: smallest N that reaches the J-card cap ---
+            # score_cards(N) = min(floor(N*mult/T), J); cap reached when N >= ceil(T*J/mult)
+            n_card = max(MIN_BET, min(MAX_BET, math.ceil(T * J / mult)))
+            cards_per_marble = p_win * min(mult * n_card // T, J) / n_card if n_card else 0
 
             rows.append(
                 {
@@ -235,25 +242,24 @@ class PinballStrategy:
         Marble-priority bet calculation.
 
         Bet the maximum (99) only when the expected return exceeds the input.
-        Otherwise bet the minimum (T) to limit losses.
+        Otherwise bet the minimum (MIN_BET) to limit losses.
         """
         ev_ratio = multiplier * p_win
         if ev_ratio > 1.0:
             return MAX_BET
-        return self.T
+        return MIN_BET
 
     def _bet_for_cards(self, multiplier: int) -> int:
         """
         Card-priority bet calculation.
 
-        Score-cards per marble = p_win × min(mult × N, J) / N.
-        When N is large enough that mult × N ≥ J the rate becomes
-        p_win × J / N, which *decreases* in N, so we want the smallest N
-        that reaches the cap: N* = ceil(J / mult).
+        score_cards(N) = min(floor(N × mult / T), J).
+        The per-marble card yield is maximised at the smallest N that reaches
+        the cap J, i.e. N × mult / T ≥ J → N ≥ T × J / mult.
+        Therefore N* = ceil(T × J / mult), clamped to [MIN_BET, MAX_BET].
 
-        Clamp N* to [T, MAX_BET].  Note: this calculation is independent of
-        the win probability because the optimal N is determined solely by the
-        cap constraint and the multiplier.
+        This calculation is independent of the win probability because the
+        optimal N is determined solely by the cap constraint and the multiplier.
         """
-        n_optimal = math.ceil(self.J / multiplier)
-        return max(self.T, min(MAX_BET, n_optimal))
+        n_optimal = math.ceil(self.T * self.J / multiplier)
+        return max(MIN_BET, min(MAX_BET, n_optimal))
