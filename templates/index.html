@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>弹珠机策略顾问</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #16213e;
+    --accent: #0f3460;
+    --highlight: #e94560;
+    --green: #4ecca3;
+    --yellow: #f0c040;
+    --text: #eee;
+    --muted: #999;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 12px;
+    padding-bottom: 80px;
+  }
+  h1 { text-align: center; font-size: 1.4em; margin: 8px 0 16px; }
+  h2 { font-size: 1.1em; margin-bottom: 10px; color: var(--green); }
+
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  label { display: block; font-size: 0.9em; margin: 8px 0 4px; color: var(--muted); }
+  input[type=number], select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1em;
+  }
+  input[type=number]:focus, select:focus {
+    outline: none;
+    border-color: var(--green);
+  }
+
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+
+  button {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: opacity .2s;
+  }
+  button:active { opacity: 0.7; }
+  .btn-primary { background: var(--green); color: #111; }
+  .btn-accent  { background: var(--highlight); color: #fff; }
+  .btn-small   { padding: 8px 12px; font-size: 0.85em; width: auto; display: inline-block; margin: 3px; }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--green);
+    color: var(--green);
+  }
+
+  /* 槽位选择网格 */
+  .slot-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin: 8px 0;
+  }
+  .slot-btn {
+    padding: 12px 0;
+    border-radius: 8px;
+    border: 2px solid #444;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1.1em;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: all .15s;
+  }
+  .slot-btn.selected {
+    background: var(--green);
+    color: #111;
+    border-color: var(--green);
+  }
+  .slot-btn:active { opacity: 0.7; }
+
+  /* 倍率按钮横排 */
+  .mult-row {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0;
+  }
+  .mult-btn {
+    flex: 1;
+    padding: 12px 0;
+    border-radius: 8px;
+    border: 2px solid #444;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1.1em;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: center;
+    transition: all .15s;
+  }
+  .mult-btn.selected {
+    background: var(--highlight);
+    color: #fff;
+    border-color: var(--highlight);
+  }
+
+  /* 结果展示 */
+  .result-box {
+    background: var(--accent);
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-top: 12px;
+  }
+  .result-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.95em;
+  }
+  .result-row:last-child { border-bottom: none; }
+  .result-label { color: var(--muted); }
+  .result-value { font-weight: 600; }
+  .big-number {
+    font-size: 2em;
+    font-weight: 800;
+    text-align: center;
+    color: var(--green);
+    padding: 12px 0;
+  }
+  .tip {
+    text-align: center;
+    font-size: 0.9em;
+    padding: 6px;
+    border-radius: 6px;
+    margin-top: 8px;
+  }
+  .tip-good { background: rgba(78,204,163,0.15); color: var(--green); }
+  .tip-bad  { background: rgba(233,69,96,0.15); color: var(--highlight); }
+  .tip-even { background: rgba(240,192,64,0.15); color: var(--yellow); }
+
+  /* EV 表格 */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85em;
+    margin-top: 8px;
+  }
+  th, td {
+    padding: 6px 4px;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  th { color: var(--muted); font-weight: 600; }
+  .ev-good { color: var(--green); }
+  .ev-bad  { color: var(--yellow); }
+
+  /* 概率柱状图 */
+  .prob-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0;
+    font-size: 0.85em;
+  }
+  .prob-label { width: 32px; text-align: right; color: var(--muted); }
+  .prob-bar {
+    height: 16px;
+    background: var(--green);
+    border-radius: 3px;
+    transition: width .3s;
+  }
+  .prob-val { width: 50px; font-size: 0.8em; color: var(--muted); }
+
+  .hidden { display: none; }
+
+  /* 记录落点面板 */
+  .record-section { margin-top: 14px; }
+
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 24px;
+    background: var(--green);
+    color: #111;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.9em;
+    opacity: 0;
+    transition: opacity .3s;
+    z-index: 99;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  .section-toggle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 4px 0;
+  }
+  .section-toggle::after {
+    content: '▼';
+    font-size: 0.7em;
+    color: var(--muted);
+    transition: transform .2s;
+  }
+  .section-toggle.collapsed::after { transform: rotate(-90deg); }
+</style>
+</head>
+<body>
+
+<h1>🎯 弹珠机策略顾问</h1>
+
+<!-- ====== Step 1: 配置 ====== -->
+<div id="setupPanel" class="card">
+  <h2>⚙️ 机器参数</h2>
+  <div class="row">
+    <div>
+      <label>T（积分卡分母）</label>
+      <input type="number" id="inputT" value="30" min="1" max="9999">
+    </div>
+    <div>
+      <label>J（单次最大卡数）</label>
+      <input type="number" id="inputJ" value="3" min="1" max="9999">
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label>优先目标</label>
+      <select id="inputPriority">
+        <option value="cards">积分卡优先</option>
+        <option value="marbles">珠子收益优先</option>
+      </select>
+    </div>
+    <div>
+      <label>先验强度</label>
+      <input type="number" id="inputPrior" value="24" min="0" max="9999">
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label>V2自适应信心阈值</label>
+      <input type="number" id="inputCT" value="5" min="0" max="9999">
+      <small style="color:#888;font-size:0.75em;">0=原始策略，建议5</small>
+    </div>
+  </div>
+  <button class="btn-primary" onclick="initMachine()">开始使用</button>
+</div>
+
+<!-- ====== Step 2: 游戏界面 ====== -->
+<div id="gamePanel" class="hidden">
+  <!-- 参数概览 -->
+  <div class="card" style="padding:10px 16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85em;">
+      <span id="configSummary" style="color:var(--muted);"></span>
+      <button class="btn-small btn-outline" onclick="resetSetup()">重置</button>
+    </div>
+  </div>
+
+  <!-- 新一局 -->
+  <div class="card">
+    <h2>🎲 新一局</h2>
+
+    <label>选择倍数</label>
+    <div class="mult-row" id="multRow"></div>
+
+    <label>选择亮灯槽位（<span id="litCount">-</span> 个）</label>
+    <div class="slot-grid" id="slotGrid"></div>
+
+    <button class="btn-accent" id="btnRecommend" onclick="getRecommendation()">获取策略建议</button>
+  </div>
+
+  <!-- 结果 -->
+  <div id="resultPanel" class="card hidden">
+    <h2>📊 策略建议</h2>
+    <div class="big-number" id="betAdvice"></div>
+    <div style="text-align:center;color:var(--muted);font-size:0.85em;margin-top:-8px;">建议投珠数</div>
+    <div class="result-box">
+      <div class="result-row">
+        <span class="result-label">中奖概率</span>
+        <span class="result-value" id="resWinProb"></span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">期望返珠</span>
+        <span class="result-value" id="resExpMarbles"></span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">期望积分卡</span>
+        <span class="result-value" id="resExpCards"></span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">珠子ROI</span>
+        <span class="result-value" id="resROI"></span>
+      </div>
+    </div>
+    <div id="resTip" class="tip"></div>
+
+    <!-- 记录结果 -->
+    <div class="record-section">
+      <label>记录落点（可选，提高后续精度）</label>
+      <div class="slot-grid" id="recordGrid"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-small btn-primary" onclick="recordSlot()">记录落点</button>
+        <button class="btn-small btn-outline" onclick="skipRecord()">跳过</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 可折叠：落点概率 -->
+  <div class="card">
+    <div class="section-toggle" onclick="toggleSection(this, 'probContent')">
+      <h2 style="margin:0;">📈 落点概率分布</h2>
+    </div>
+    <div id="probContent">
+      <div id="probBars"></div>
+      <div id="probInfo" style="text-align:center;font-size:0.85em;color:var(--muted);margin-top:6px;"></div>
+    </div>
+  </div>
+
+  <!-- 可折叠：EV 表 -->
+  <div class="card">
+    <div class="section-toggle" onclick="toggleSection(this, 'evContent')">
+      <h2 style="margin:0;">📋 基准期望值表</h2>
+    </div>
+    <div id="evContent">
+      <table id="evTable">
+        <thead>
+          <tr>
+            <th>倍数</th><th>亮灯</th><th>中奖率</th><th>ROI</th><th>最优投</th><th>每珠积分</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<script>
+const NUM_SLOTS = {{ NUM_SLOTS }};
+const MULT_SLOTS = {2:4, 4:3, 6:2, 8:1, 10:1};
+
+let selectedMult = null;
+let selectedLitSlots = new Set();
+let recordSlotSelected = null;
+
+// ─── Init ───
+function initMachine() {
+  const T = parseInt(document.getElementById('inputT').value);
+  const J = parseInt(document.getElementById('inputJ').value);
+  const priority = document.getElementById('inputPriority').value;
+  const prior = parseFloat(document.getElementById('inputPrior').value);
+  const ct = parseFloat(document.getElementById('inputCT').value);
+
+  fetch('/api/init', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({T, J, priority, prior_weight: prior, confidence_threshold: ct})
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) { showToast('❌ ' + data.error); return; }
+    document.getElementById('setupPanel').classList.add('hidden');
+    document.getElementById('gamePanel').classList.remove('hidden');
+    const ctLabel = ct > 0 ? `V2(ct=${ct})` : '原始策略';
+    document.getElementById('configSummary').textContent =
+      `T=${T}  J=${J}  ${priority==='cards'?'积分卡优先':'珠子优先'}  ${ctLabel}`;
+    buildMultButtons();
+    buildSlotGrid();
+    buildRecordGrid();
+    renderEVTable(data.ev_table);
+    refreshProbs();
+  });
+}
+
+function resetSetup() {
+  document.getElementById('setupPanel').classList.remove('hidden');
+  document.getElementById('gamePanel').classList.add('hidden');
+  document.getElementById('resultPanel').classList.add('hidden');
+}
+
+// ─── Multiplier buttons ───
+function buildMultButtons() {
+  const row = document.getElementById('multRow');
+  row.innerHTML = '';
+  for (const m of [2,4,6,8,10]) {
+    const btn = document.createElement('div');
+    btn.className = 'mult-btn';
+    btn.textContent = m + 'x';
+    btn.dataset.mult = m;
+    btn.onclick = () => selectMult(m);
+    row.appendChild(btn);
+  }
+}
+
+function selectMult(m) {
+  selectedMult = m;
+  selectedLitSlots.clear();
+  document.querySelectorAll('.mult-btn').forEach(b =>
+    b.classList.toggle('selected', parseInt(b.dataset.mult) === m));
+  document.getElementById('litCount').textContent = MULT_SLOTS[m];
+  // Reset slot grid selection
+  document.querySelectorAll('#slotGrid .slot-btn').forEach(b => b.classList.remove('selected'));
+}
+
+// ─── Slot grid ───
+function buildSlotGrid() {
+  const grid = document.getElementById('slotGrid');
+  grid.innerHTML = '';
+  for (let i = 0; i < NUM_SLOTS; i++) {
+    const btn = document.createElement('div');
+    btn.className = 'slot-btn';
+    btn.textContent = (i+1);
+    btn.dataset.slot = i;
+    btn.onclick = () => toggleSlot(i, btn);
+    grid.appendChild(btn);
+  }
+}
+
+function toggleSlot(i, btn) {
+  if (!selectedMult) { showToast('请先选择倍数'); return; }
+  const maxLit = MULT_SLOTS[selectedMult];
+  if (selectedLitSlots.has(i)) {
+    selectedLitSlots.delete(i);
+    btn.classList.remove('selected');
+  } else {
+    if (selectedLitSlots.size >= maxLit) { showToast(`最多选 ${maxLit} 个`); return; }
+    selectedLitSlots.add(i);
+    btn.classList.add('selected');
+  }
+}
+
+// ─── Record grid ───
+function buildRecordGrid() {
+  const grid = document.getElementById('recordGrid');
+  grid.innerHTML = '';
+  for (let i = 0; i < NUM_SLOTS; i++) {
+    const btn = document.createElement('div');
+    btn.className = 'slot-btn';
+    btn.textContent = (i+1);
+    btn.dataset.slot = i;
+    btn.onclick = () => {
+      recordSlotSelected = i;
+      grid.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    };
+    grid.appendChild(btn);
+  }
+}
+
+// ─── Get recommendation ───
+function getRecommendation() {
+  if (!selectedMult) { showToast('请先选择倍数'); return; }
+  const needed = MULT_SLOTS[selectedMult];
+  if (selectedLitSlots.size !== needed) {
+    showToast(`请选择 ${needed} 个亮灯槽位`);
+    return;
+  }
+
+  fetch('/api/recommend', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({multiplier: selectedMult, lit_slots: [...selectedLitSlots]})
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) { showToast('❌ ' + data.error); return; }
+    const rec = data.recommendation;
+    document.getElementById('resultPanel').classList.remove('hidden');
+    document.getElementById('betAdvice').textContent = rec.optimal_bet + ' 颗';
+    document.getElementById('resWinProb').textContent = (rec.win_probability * 100).toFixed(2) + '%';
+    document.getElementById('resExpMarbles').textContent = rec.expected_marble_return.toFixed(2);
+    document.getElementById('resExpCards').textContent = rec.expected_score_cards.toFixed(4);
+    document.getElementById('resROI').textContent = rec.marble_roi.toFixed(4);
+
+    const tip = document.getElementById('resTip');
+    if (rec.marble_roi > 1) {
+      tip.className = 'tip tip-good';
+      tip.textContent = '✓ 期望正收益！建议多投';
+    } else if (rec.marble_roi === 1) {
+      tip.className = 'tip tip-even';
+      tip.textContent = '≈ 收支平衡';
+    } else {
+      if (data.priority === 'marbles') {
+        tip.className = 'tip tip-bad';
+        tip.textContent = '✗ 期望负收益，仅投最低数量';
+      } else {
+        tip.className = 'tip tip-bad';
+        tip.textContent = '✗ 珠子期望亏损，但这是积分卡最优投珠数';
+      }
+    }
+
+    // Reset record selection
+    recordSlotSelected = null;
+    document.querySelectorAll('#recordGrid .slot-btn').forEach(b => b.classList.remove('selected'));
+
+    // Scroll to result
+    document.getElementById('resultPanel').scrollIntoView({behavior:'smooth', block:'start'});
+  });
+}
+
+// ─── Record landing ───
+function recordSlot() {
+  if (recordSlotSelected === null) { showToast('请先选择落点槽位'); return; }
+  fetch('/api/record', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({slot: recordSlotSelected})
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) { showToast('❌ ' + data.error); return; }
+    showToast(`✓ 已记录槽位 ${recordSlotSelected+1}（共 ${data.total_plays} 局）`);
+    refreshProbs();
+    prepareNextRound();
+  });
+}
+
+function skipRecord() {
+  showToast('已跳过记录');
+  prepareNextRound();
+}
+
+function prepareNextRound() {
+  document.getElementById('resultPanel').classList.add('hidden');
+  selectedMult = null;
+  selectedLitSlots.clear();
+  document.querySelectorAll('.mult-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelectorAll('#slotGrid .slot-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('litCount').textContent = '-';
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+// ─── Probability bars ───
+function refreshProbs() {
+  fetch('/api/probs')
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) return;
+    const container = document.getElementById('probBars');
+    container.innerHTML = '';
+    const maxP = Math.max(...data.landing_probs);
+    data.landing_probs.forEach((p, i) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'prob-bar-wrap';
+      const widthPct = maxP > 0 ? (p / maxP * 100) : 0;
+      wrap.innerHTML = `
+        <span class="prob-label">${i+1}</span>
+        <div style="flex:1;background:rgba(255,255,255,0.05);border-radius:3px;">
+          <div class="prob-bar" style="width:${widthPct}%"></div>
+        </div>
+        <span class="prob-val">${(p*100).toFixed(1)}%</span>
+      `;
+      container.appendChild(wrap);
+    });
+    document.getElementById('probInfo').textContent =
+      data.total_plays > 0 ? `已统计 ${data.total_plays} 局` : '尚无历史数据，使用均匀分布';
+  });
+}
+
+// ─── EV Table ───
+function renderEVTable(rows) {
+  const tbody = document.querySelector('#evTable tbody');
+  tbody.innerHTML = '';
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    const roiClass = r.marble_ev_ratio >= 1 ? 'ev-good' : 'ev-bad';
+    tr.innerHTML = `
+      <td>${r.multiplier}x</td>
+      <td>${r.lit_slots}</td>
+      <td>${(r.p_win*100).toFixed(1)}%</td>
+      <td class="${roiClass}">${r.marble_ev_ratio.toFixed(3)}</td>
+      <td>${r.card_optimal_bet}</td>
+      <td>${r.cards_per_marble.toFixed(4)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ─── Toggle section ───
+function toggleSection(header, contentId) {
+  const content = document.getElementById(contentId);
+  const hidden = content.style.display === 'none';
+  content.style.display = hidden ? '' : 'none';
+  header.classList.toggle('collapsed', !hidden);
+}
+
+// ─── Toast ───
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "弹珠机策略顾问",
+  "short_name": "弹珠策略",
+  "description": "12口弹珠机最佳出卡策略顾问 - 离线可用",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
