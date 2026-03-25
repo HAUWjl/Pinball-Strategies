@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: pinball-strategy
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: ./docs
+    branch: main
+    pullRequestPreviewsEnabled: false
