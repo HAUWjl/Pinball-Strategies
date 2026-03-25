@@ -342,27 +342,41 @@
 <!-- ====== Step 1: 配置 ====== -->
 <div id="setupPanel" class="card hidden">
   <h2>⚙️ 机器参数</h2>
+  <!-- 基本参数 -->
   <div class="row">
     <div>
-      <label>T（积分卡分母）</label>
+      <label>每多少颗吐珠得一张卡</label>
       <input type="number" id="inputT" value="30" min="1" max="9999" inputmode="numeric">
     </div>
     <div>
-      <label>J（单次最大卡数）</label>
+      <label>单次最大获得卡数</label>
       <input type="number" id="inputJ" value="3" min="1" max="9999" inputmode="numeric">
     </div>
   </div>
-  <div class="row">
-    <div>
-      <label>优先目标</label>
-      <select id="inputPriority">
-        <option value="cards">积分卡优先</option>
-        <option value="marbles">珠子收益优先</option>
-      </select>
+  <label>优先目标</label>
+  <select id="inputPriority">
+    <option value="cards">积分卡优先</option>
+    <option value="marbles">珠子收益优先</option>
+  </select>
+  <!-- 高级参数 -->
+  <div class="section-toggle collapsed" onclick="toggleSection(this, 'advancedParams')" style="margin-top:12px;">
+    <span style="font-size:0.9em;color:var(--muted);">⚙ 高级参数</span>
+  </div>
+  <div id="advancedParams" style="display:none;">
+    <div class="row">
+      <div>
+        <label>先验强度</label>
+        <input type="number" id="inputPrior" value="24" min="0" max="9999" inputmode="numeric"
+          oninput="document.getElementById('inputCt').value=this.value">
+      </div>
+      <div>
+        <label>半信任局数</label>
+        <input type="number" id="inputCt" value="24" min="0" max="9999" inputmode="numeric"
+          oninput="document.getElementById('inputPrior').value=this.value">
+      </div>
     </div>
-    <div>
-      <label>先验强度</label>
-      <input type="number" id="inputPrior" value="24" min="0" max="9999" inputmode="numeric">
+    <div style="font-size:0.75em;color:var(--muted);margin-top:4px;line-height:1.5;">
+      先验强度 = 半信任局数：观测达到此局数后，实际数据权重占 50%。值越大，前期越依赖均匀假设；值越小，越快信任实际观测。
     </div>
   </div>
   <button class="btn-primary" onclick="initMachine()">开始使用</button>
