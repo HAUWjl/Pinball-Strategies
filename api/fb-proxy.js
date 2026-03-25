@@ -7,6 +7,15 @@ const BACKENDS = {
 };
 
 module.exports = async function handler(req, res) {
+  // CORS headers (always set)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
   // Path: /api/fb-proxy?p=identitytoolkit/v1/accounts:lookup&key=xxx
   const p = req.query.p || '';
   const slashIdx = p.indexOf('/');
@@ -32,22 +41,27 @@ module.exports = async function handler(req, res) {
   if (req.headers['authorization']) fwdHeaders['Authorization'] = req.headers['authorization'];
 
   try {
+    // Serialize body based on content-type
+    let body = undefined;
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+      const ct = (req.headers['content-type'] || '').toLowerCase();
+      if (typeof req.body === 'string') {
+        body = req.body;
+      } else if (ct.includes('x-www-form-urlencoded')) {
+        // Vercel parses form body into object — re-encode as form data
+        body = Object.entries(req.body)
+          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+          .join('&');
+      } else {
+        body = JSON.stringify(req.body);
+      }
+    }
+
     const upstream = await fetch(targetUrl, {
       method: req.method,
       headers: fwdHeaders,
-      body: req.method !== 'GET' && req.method !== 'HEAD'
-        ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
-        : undefined,
+      body,
     });
-
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-    if (req.method === 'OPTIONS') {
-      return res.status(204).end();
-    }
 
     const data = await upstream.text();
     // Forward content-type from upstream
