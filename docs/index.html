@@ -7,6 +7,49 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a2e">
 <link rel="manifest" href="manifest.json">
+<script>
+// ── Firebase API 代理（解决中国大陆无法访问 Google 服务的问题）──
+// 必须在 Firebase SDK 加载之前定义
+(function(){
+  window.__fbProxyActive = false;
+  var PROXY_TARGETS = [
+    ['https://identitytoolkit.googleapis.com', '/fb-proxy/identitytoolkit'],
+    ['https://securetoken.googleapis.com', '/fb-proxy/securetoken'],
+    ['https://firestore.googleapis.com', '/fb-proxy/firestore']
+  ];
+  window.__activateFirebaseProxy = function() {
+    if (window.__fbProxyActive) return;
+    window.__fbProxyActive = true;
+    // Patch fetch
+    var origFetch = window.fetch;
+    window.fetch = function(input, init) {
+      var url = (typeof input === 'string') ? input : (input instanceof Request ? input.url : String(input));
+      for (var i = 0; i < PROXY_TARGETS.length; i++) {
+        if (url.indexOf(PROXY_TARGETS[i][0]) === 0) {
+          var newUrl = url.replace(PROXY_TARGETS[i][0], PROXY_TARGETS[i][1]);
+          if (typeof input === 'string') return origFetch.call(this, newUrl, init);
+          return origFetch.call(this, new Request(newUrl, input), init);
+        }
+      }
+      return origFetch.call(this, input, init);
+    };
+    // Patch XMLHttpRequest
+    var origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      if (typeof url === 'string') {
+        for (var i = 0; i < PROXY_TARGETS.length; i++) {
+          if (url.indexOf(PROXY_TARGETS[i][0]) === 0) {
+            arguments[1] = url.replace(PROXY_TARGETS[i][0], PROXY_TARGETS[i][1]);
+            break;
+          }
+        }
+      }
+      return origOpen.apply(this, arguments);
+    };
+    console.log('[Proxy] Firebase API proxy activated');
+  };
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.0/firebase-app-compat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.0/firebase-auth-compat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/firebase@10.12.0/firebase-firestore-compat.min.js"></script>
@@ -780,17 +823,39 @@ let userMaxMachines = LIMIT_LOGIN;
   } catch(e) {}
 })();
 
-// ── Proactive Firebase connectivity check ──
-function probeFirebaseNetwork() {
+// ── Firebase connectivity check & proxy ──
+function probeFirebaseDirect() {
   return new Promise(resolve => {
-    const timeout = setTimeout(() => resolve(false), 5000);
-    fetch('https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=' + FIREBASE_CONFIG.apiKey, { mode: 'cors' })
-      .then(r => { clearTimeout(timeout); resolve(r.ok || r.status === 400); })
+    const timeout = setTimeout(() => resolve(false), 4000);
+    const testUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + FIREBASE_CONFIG.apiKey;
+    fetch(testUrl, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' })
+      .then(r => { clearTimeout(timeout); resolve(true); })
       .catch(() => { clearTimeout(timeout); resolve(false); });
   });
 }
-function showNetworkHintProactive() {
-  document.getElementById('authNetworkHint').classList.remove('hidden');
+function probeProxy() {
+  return new Promise(resolve => {
+    const timeout = setTimeout(() => resolve(false), 4000);
+    fetch('/fb-proxy/identitytoolkit/v1/accounts:lookup?key=' + FIREBASE_CONFIG.apiKey,
+      { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' })
+      .then(r => { clearTimeout(timeout); resolve(r.status !== 404 && r.status !== 0); })
+      .catch(() => { clearTimeout(timeout); resolve(false); });
+  });
+}
+function showNetworkHint(msg) {
+  const el = document.getElementById('authNetworkHint');
+  if (msg) el.innerHTML = msg;
+  el.classList.remove('hidden');
+}
+function showProxySuccess() {
+  const el = document.getElementById('authNetworkHint');
+  el.innerHTML = '✅ <b style="color:var(--green);">已自动启用网络代理</b>，您可以正常登录/注册';
+  el.style.background = 'rgba(78,204,163,0.1)';
+  el.style.borderColor = 'rgba(78,204,163,0.3)';
+  el.classList.remove('hidden');
+}
+function showOfflineHint() {
+  showNetworkHint('⚠️ <b style="color:var(--highlight);">网络连接失败</b><br>Firebase 服务需要访问 Google 服务器。如果您在中国大陆，可能需要：<br>① 使用 VPN / 科学上网工具<br>② 或点击下方「离线使用」');
   const offBtn = document.querySelector('#authPanel .btn-outline');
   if (offBtn) {
     offBtn.style.cssText = 'margin-top:6px;background:var(--green);color:#111;font-weight:700;font-size:1.05em;padding:10px 0;';
@@ -798,13 +863,27 @@ function showNetworkHintProactive() {
   }
 }
 
-// ── Init: check Firebase auth or go offline ──
-document.addEventListener('DOMContentLoaded', () => {
-  if (fbReady) {
-    // Start connectivity probe as soon as auth panel may show
-    let networkOk = null;
-    probeFirebaseNetwork().then(ok => { networkOk = ok; });
+// ── Init: detect network → activate proxy if needed → init Firebase ──
+document.addEventListener('DOMContentLoaded', async () => {
+  // Step 1: Check direct Firebase connectivity
+  const directOk = await probeFirebaseDirect();
 
+  if (!directOk) {
+    // Step 2: Check if proxy is available (Vercel deployment)
+    const proxyOk = await probeProxy();
+    if (proxyOk) {
+      window.__activateFirebaseProxy();
+    }
+  }
+
+  // Step 3: (Re-)init Firebase with potentially proxied network
+  // If proxy was activated, Firebase SDK calls now go through proxy
+  if (!fbReady) {
+    initFirebase();
+  }
+
+  // Step 4: Auth state handling
+  if (fbReady) {
     fbAuth.onAuthStateChanged(async user => {
       if (user) {
         cloudUid = user.uid;
@@ -815,17 +894,18 @@ document.addEventListener('DOMContentLoaded', () => {
           const codeSnap = await fbDb.collection('codes').where('usedBy', '==', user.uid).limit(1).get();
           userMaxMachines = codeSnap.empty ? LIMIT_LOGIN : LIMIT_ACTIVATED;
         } catch(e) { userMaxMachines = LIMIT_LOGIN; }
+        document.getElementById('authNetworkHint').classList.add('hidden');
         renderMachineList();
         showPanel('machine');
       } else {
         cloudUid = null;
         document.getElementById('userBar').classList.add('hidden');
         showPanel('auth');
-        // Wait for probe result, then show hint if needed
-        if (networkOk === false) {
-          showNetworkHintProactive();
-        } else if (networkOk === null) {
-          probeFirebaseNetwork().then(ok => { if (!ok) showNetworkHintProactive(); });
+        // Show appropriate hint based on network state
+        if (!directOk && window.__fbProxyActive) {
+          showProxySuccess();
+        } else if (!directOk) {
+          showOfflineHint();
         }
       }
     });

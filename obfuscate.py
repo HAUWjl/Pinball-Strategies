@@ -128,6 +128,9 @@ def create_wrapper(code):
     # PinballStrategy class
     exports.append('window.PinballStrategy=PinballStrategy;')
 
+    # initFirebase (called by DOMContentLoaded after proxy detection)
+    exports.append('window.initFirebase=initFirebase;')
+
     export_block = '\n'.join(exports)
 
     return f'(function(){{\n{code}\n{export_block}\n}})();'
