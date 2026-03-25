@@ -25,6 +25,22 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
+  // Debug mode
+  if (req.query.debug === '1') {
+    const rawBody = await getRawBody(req);
+    return res.status(200).json({
+      method: req.method,
+      contentType: req.headers['content-type'],
+      bodyType: typeof req.body,
+      bodyIsNull: req.body === null,
+      bodyIsUndefined: req.body === undefined,
+      bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : null,
+      rawBodyLength: rawBody.length,
+      rawBodyStr: rawBody.toString('utf8').substring(0, 200),
+    });
+  }
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
