@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pro 卡密管理后台</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #16213e;
+    --accent: #0f3460;
+    --highlight: #e94560;
+    --green: #4ecca3;
+    --yellow: #f0c040;
+    --text: #eee;
+    --muted: #999;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h1 { text-align: center; font-size: 1.3em; margin: 8px 0 16px; }
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .card h2 { font-size: 1em; color: var(--green); margin-bottom: 10px; }
+
+  /* 登录 */
+  #loginPanel { max-width: 360px; margin: 60px auto; }
+  #loginPanel input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1em;
+    margin-bottom: 8px;
+  }
+  #loginPanel input:focus { outline: none; border-color: var(--green); }
+  .btn {
+    display: inline-block;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .2s;
+  }
+  .btn:active { opacity: 0.7; }
+  .btn-green { background: var(--green); color: #111; }
+  .btn-yellow { background: var(--yellow); color: #111; }
+  .btn-red { background: var(--highlight); color: #fff; }
+  .btn-small { padding: 6px 12px; font-size: 0.8em; }
+  .btn-full { width: 100%; }
+
+  /* 统计 */
+  .stats-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .stat-box {
+    flex: 1;
+    min-width: 80px;
+    background: var(--accent);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .stat-num { font-size: 1.5em; font-weight: 700; }
+  .stat-label { font-size: 0.75em; color: var(--muted); margin-top: 2px; }
+  .stat-pending .stat-num { color: var(--yellow); }
+  .stat-done .stat-num { color: var(--green); }
+  .stat-total .stat-num { color: var(--text); }
+
+  /* 订单表 */
+  .order-list { margin-top: 10px; }
+  .order-item {
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .order-id {
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 1.1em;
+    color: var(--yellow);
+    min-width: 80px;
+  }
+  .order-contact {
+    font-size: 0.9em;
+    color: var(--text);
+    flex: 1;
+    min-width: 140px;
+  }
+  .order-time {
+    font-size: 0.78em;
+    color: var(--muted);
+    min-width: 100px;
+  }
+  .order-status {
+    font-size: 0.8em;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .status-pending { background: rgba(240,192,64,0.15); color: var(--yellow); }
+  .status-done { background: rgba(78,204,163,0.15); color: var(--green); }
+  .order-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .order-code {
+    font-family: monospace;
+    font-size: 0.85em;
+    color: var(--green);
+    background: rgba(78,204,163,0.1);
+    padding: 3px 8px;
+    border-radius: 6px;
+    word-break: break-all;
+  }
+
+  .hidden { display: none !important; }
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.88em;
+    z-index: 999;
+    opacity: 0;
+    transition: opacity .3s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  .filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    padding: 6px 14px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.82em;
+  }
+  .filter-btn.active {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(78,204,163,0.1);
+  }
+  .empty-hint {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.9em;
+    padding: 20px;
+  }
+</style>
+</head>
+<body>
+
+<!-- 登录面板 -->
+<div id="loginPanel" class="card">
+  <h2>🔐 管理员登录</h2>
+  <input type="email" id="adminEmail" placeholder="管理员邮箱" autocomplete="email">
+  <input type="password" id="adminPassword" placeholder="密码" autocomplete="current-password">
+  <button class="btn btn-green btn-full" onclick="adminLogin()">登录</button>
+  <div id="loginError" style="color:var(--highlight);font-size:0.82em;margin-top:8px;text-align:center;"></div>
+</div>
+
+<!-- 管理面板 -->
+<div id="adminPanel" class="hidden">
+  <h1>🎛️ Pro 卡密管理后台</h1>
+
+  <!-- 统计 -->
+  <div class="stats-row">
+    <div class="stat-box stat-pending">
+      <div class="stat-num" id="statPending">0</div>
+      <div class="stat-label">待处理</div>
+    </div>
+    <div class="stat-box stat-done">
+      <div class="stat-num" id="statDone">0</div>
+      <div class="stat-label">已完成</div>
+    </div>
+    <div class="stat-box stat-total">
+      <div class="stat-num" id="statTotal">0</div>
+      <div class="stat-label">总订单</div>
+    </div>
+  </div>
+
+  <!-- 筛选 -->
+  <div class="filter-row">
+    <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">全部</button>
+    <button class="filter-btn" data-filter="pending" onclick="setFilter('pending', this)">待处理</button>
+    <button class="filter-btn" data-filter="done" onclick="setFilter('done', this)">已完成</button>
+  </div>
+
+  <!-- 订单列表 -->
+  <div class="card">
+    <h2>📋 订单列表 <span id="orderCount" style="color:var(--muted);font-weight:400;"></span></h2>
+    <div id="orderList" class="order-list"></div>
+    <div id="orderEmpty" class="empty-hint hidden">暂无订单</div>
+  </div>
+
+  <button class="btn btn-red btn-small" style="margin-top:10px;" onclick="adminLogout()">退出登录</button>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ═══ Firebase ═══
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDk4xoXRQzfWUQtkQwFFM0Kk1ehiBlSKRI",
+  authDomain: "pinball-strategy.firebaseapp.com",
+  projectId: "pinball-strategy",
+  storageBucket: "pinball-strategy.firebasestorage.app",
+  messagingSenderId: "367036781432",
+  appId: "1:367036781432:web:367add79ba8d6d5654ee8d"
+};
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// 管理员 UID 白名单（登录后从 Firestore admins 集合校验）
+let isAdmin = false;
+let allOrders = [];
+let currentFilter = 'all';
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ═══ 登录 ═══
+async function adminLogin() {
+  const email = document.getElementById('adminEmail').value.trim();
+  const pwd = document.getElementById('adminPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  if (!email || !pwd) { errEl.textContent = '请输入邮箱和密码'; return; }
+  try {
+    const cred = await auth.signInWithEmailAndPassword(email, pwd);
+    await verifyAdmin(cred.user);
+  } catch(e) {
+    errEl.textContent = e.code === 'auth/invalid-credential' ? '邮箱或密码错误' : e.message;
+  }
+}
+
+async function verifyAdmin(user) {
+  // 检查 Firestore admins 集合
+  try {
+    const doc = await db.collection('admins').doc(user.uid).get();
+    if (doc.exists) {
+      isAdmin = true;
+      showAdmin();
+      return;
+    }
+  } catch(e) {}
+  // 如果 admins 集合没有记录，检查 users 集合的 role 字段
+  try {
+    const doc = await db.collection('users').doc(user.uid).get();
+    if (doc.exists && doc.data().role === 'admin') {
+      isAdmin = true;
+      showAdmin();
+      return;
+    }
+  } catch(e) {}
+  document.getElementById('loginError').textContent = '该账号无管理员权限';
+  auth.signOut();
+}
+
+function adminLogout() {
+  auth.signOut();
+  isAdmin = false;
+  document.getElementById('adminPanel').classList.add('hidden');
+  document.getElementById('loginPanel').classList.remove('hidden');
+}
+
+function showAdmin() {
+  document.getElementById('loginPanel').classList.add('hidden');
+  document.getElementById('adminPanel').classList.remove('hidden');
+  loadOrders();
+}
+
+// 自动恢复登录
+auth.onAuthStateChanged(async user => {
+  if (user && !isAdmin) {
+    await verifyAdmin(user);
+  }
+});
+
+// ═══ 订单管理 ═══
+async function loadOrders() {
+  try {
+    const snap = await db.collection('orders').orderBy('createdAt', 'desc').get();
+    allOrders = [];
+    snap.forEach(doc => allOrders.push({ id: doc.id, ...doc.data() }));
+    renderOrders();
+  } catch(e) {
+    showToast('加载订单失败: ' + e.message);
+  }
+}
+
+function renderOrders() {
+  const pending = allOrders.filter(o => o.status === 'pending').length;
+  const done = allOrders.filter(o => o.status === 'done').length;
+  document.getElementById('statPending').textContent = pending;
+  document.getElementById('statDone').textContent = done;
+  document.getElementById('statTotal').textContent = allOrders.length;
+
+  const filtered = currentFilter === 'all' ? allOrders :
+    allOrders.filter(o => o.status === currentFilter);
+  document.getElementById('orderCount').textContent = '(' + filtered.length + ')';
+
+  const listEl = document.getElementById('orderList');
+  const emptyEl = document.getElementById('orderEmpty');
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '';
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  emptyEl.classList.add('hidden');
+
+  listEl.innerHTML = filtered.map(o => {
+    const isDone = o.status === 'done';
+    const time = o.createdAt ? new Date(o.createdAt).toLocaleString('zh-CN') : '-';
+    const codeHtml = o.code
+      ? '<span class="order-code">' + escHtml(o.code) + '</span>'
+      : '';
+    const actionsHtml = isDone
+      ? '<button class="btn btn-small" style="background:#333;color:var(--muted);" disabled>已完成</button>'
+      : '<button class="btn btn-yellow btn-small" onclick="generateAndSend(\'' + escHtml(o.id) + '\')">生成卡密并完成</button>';
+    return '<div class="order-item">' +
+      '<span class="order-id">' + escHtml(o.orderId || o.id) + '</span>' +
+      '<span class="order-contact">' + escHtml(o.contact) + '</span>' +
+      '<span class="order-time">' + time + '</span>' +
+      '<span class="order-status ' + (isDone ? 'status-done' : 'status-pending') + '">' +
+        (isDone ? '已完成' : '待处理') + '</span>' +
+      '<span class="order-actions">' + actionsHtml + '</span>' +
+      codeHtml +
+    '</div>';
+  }).join('');
+}
+
+function setFilter(f, el) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderOrders();
+}
+
+// ═══ 生成卡密 ═══
+function genCode() {
+  var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  var code = '';
+  var arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  for (var i = 0; i < 16; i++) code += chars[arr[i] % chars.length];
+  // 分组显示 XXXX-XXXX-XXXX-XXXX
+  return code.match(/.{4}/g).join('-');
+}
+
+async function generateAndSend(orderId) {
+  if (!confirm('确认生成卡密并标记为已完成？')) return;
+  const code = genCode();
+  const codeRaw = code.replace(/-/g, ''); // 存储不带横线的版本
+  try {
+    // 1. 写入 codes 集合（与主应用激活逻辑匹配）
+    await db.collection('codes').doc(codeRaw).set({
+      used: false,
+      createdAt: new Date().toISOString(),
+      orderId: orderId
+    });
+    // 2. 更新订单状态
+    await db.collection('orders').doc(orderId).update({
+      status: 'done',
+      code: code,
+      completedAt: new Date().toISOString()
+    });
+    // 3. 刷新本地
+    const idx = allOrders.findIndex(o => o.id === orderId);
+    if (idx >= 0) {
+      allOrders[idx].status = 'done';
+      allOrders[idx].code = code;
+    }
+    renderOrders();
+    // 4. 复制到剪贴板
+    try { await navigator.clipboard.writeText(codeRaw); } catch(e) {}
+    showToast('卡密已生成并复制: ' + code);
+  } catch(e) {
+    showToast('操作失败: ' + e.message);
+  }
+}
+
+function escHtml(s) {
+  var d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// 回车登录
+document.getElementById('adminPassword').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') adminLogin();
+});
+</script>
+
+</body>
+</html>

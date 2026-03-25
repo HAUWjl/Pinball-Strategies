@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1a2e">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <title>购买 Pro 卡密 - 弹珠机策略顾问</title>
 <style>
   :root {
@@ -270,6 +272,69 @@
     vertical-align: middle;
     margin-left: 6px;
   }
+
+  /* 联系方式输入表单 */
+  .contact-form { text-align: center; }
+  .contact-form label {
+    display: block;
+    font-size: 0.88em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .contact-input {
+    width: 100%;
+    max-width: 320px;
+    padding: 11px 14px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1em;
+    text-align: center;
+    -webkit-appearance: none;
+  }
+  .contact-input:focus {
+    outline: none;
+    border-color: var(--green);
+  }
+  .contact-input.error {
+    border-color: var(--highlight);
+  }
+  .form-hint {
+    font-size: 0.78em;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .form-error {
+    font-size: 0.8em;
+    color: var(--highlight);
+    margin-top: 6px;
+    display: none;
+  }
+  .btn-reveal {
+    display: inline-block;
+    padding: 12px 36px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--yellow);
+    color: #111;
+    margin-top: 14px;
+    transition: opacity .2s;
+  }
+  .btn-reveal:active { opacity: 0.7; }
+  .btn-reveal:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .qr-hidden { display: none; }
+  .contact-confirmed {
+    font-size: 0.85em;
+    color: var(--green);
+    margin-bottom: 12px;
+  }
 </style>
 </head>
 <body>
@@ -371,15 +436,15 @@
   <ol class="steps">
     <li>
       <span class="step-num"></span>
-      <span>扫描下方收款码，支付 <b style="color:var(--yellow);">¥9.9</b></span>
+      <span>在下方输入你的 <b style="color:var(--green);">手机号</b> 或 <b style="color:var(--green);">邮箱</b>，获取订单号</span>
     </li>
     <li>
       <span class="step-num"></span>
-      <span>付款时备注你的 <b style="color:var(--green);">手机号</b> 或 <b style="color:var(--green);">微信号</b></span>
+      <span>扫描收款码支付 <b style="color:var(--yellow);">¥9.9</b>，付款备注填写 <b style="color:var(--yellow);">订单号</b></span>
     </li>
     <li>
       <span class="step-num"></span>
-      <span>添加客服微信（或等待自动回复），获取 <b style="color:var(--yellow);">Pro 卡密</b></span>
+      <span>客服核对订单号后，通过邮件/短信发送 <b style="color:var(--yellow);">Pro 卡密</b></span>
     </li>
     <li>
       <span class="step-num"></span>
@@ -391,24 +456,39 @@
 <!-- 收款码 -->
 <div class="card">
   <h2>💳 扫码支付</h2>
-  <div class="qr-section">
-    <div class="qr-row">
-      <div class="qr-item">
-        <div class="qr-placeholder" id="wechatQR">
-          请替换为<br>微信收款码
-        </div>
-        <div class="qr-label wechat">微信支付</div>
-      </div>
-      <div class="qr-item">
-        <div class="qr-placeholder" id="alipayQR">
-          请替换为<br>支付宝收款码
-        </div>
-        <div class="qr-label alipay">支付宝</div>
-      </div>
+
+  <!-- Step A: 输入联系方式 -->
+  <div id="contactForm" class="contact-form">
+    <label>请先输入你的手机号或邮箱，用于接收卡密</label>
+    <input type="text" id="buyerContact" class="contact-input" placeholder="手机号 / 邮箱" maxlength="50" autocomplete="email">
+    <div id="contactError" class="form-error">请输入有效的手机号或邮箱</div>
+    <div class="form-hint">我们仅用于发送卡密，不会用于其他用途</div>
+    <button class="btn-reveal" id="btnRevealQR" onclick="revealQRCodes()">确认并查看收款码</button>
+  </div>
+
+  <!-- Step B: 显示订单号和收款码（默认隐藏） -->
+  <div id="qrCodesSection" class="qr-hidden">
+    <div class="contact-confirmed" id="confirmedContact"></div>
+    <div style="text-align:center;margin:12px 0 16px;padding:14px;background:rgba(240,192,64,0.1);border:2px solid var(--yellow);border-radius:10px;">
+      <div style="font-size:0.82em;color:var(--muted);margin-bottom:4px;">你的订单号</div>
+      <div id="orderIdDisplay" style="font-size:1.6em;font-weight:700;color:var(--yellow);letter-spacing:2px;font-family:monospace;"></div>
+      <div style="font-size:0.78em;color:var(--highlight);margin-top:6px;font-weight:600;">⚠️ 付款时请备注此订单号！</div>
     </div>
-    <p style="font-size:0.78em;color:var(--muted);margin-top:12px;">
-      付款时请务必备注联系方式，以便发送卡密
-    </p>
+    <div class="qr-section">
+      <div class="qr-row">
+        <div class="qr-item">
+          <img src="qr-wechat.jpg" alt="微信收款码" style="width:160px;height:auto;border-radius:10px;">
+          <div class="qr-label wechat">微信支付</div>
+        </div>
+        <div class="qr-item">
+          <img src="qr-alipay.jpg" alt="支付宝收款码" style="width:160px;height:auto;border-radius:10px;">
+          <div class="qr-label alipay">支付宝</div>
+        </div>
+      </div>
+      <p style="font-size:0.82em;color:var(--muted);margin-top:14px;line-height:1.6;">
+        付款备注填 <b style="color:var(--yellow);">订单号</b>，客服核对后将卡密发至你的手机号/邮箱
+      </p>
+    </div>
   </div>
 </div>
 
@@ -416,10 +496,9 @@
 <div class="card">
   <h2>📬 联系客服</h2>
   <div class="contact-info">
-    <p>微信号：<b>请填写你的微信号</b></p>
-    <p>QQ：<b>请填写你的QQ号</b></p>
+    <p>客服邮箱：<b>chaliewonka@163.com</b></p>
     <p style="font-size:0.8em;margin-top:8px;">
-      付款后 5 分钟内未收到卡密？请联系客服处理
+      付款后未收到卡密？请发邮件至客服邮箱并附上付款截图
     </p>
   </div>
 </div>
@@ -437,11 +516,11 @@
   </div>
   <div class="faq-item">
     <div class="faq-q">已付款但没收到卡密怎么办？</div>
-    <div class="faq-a">请添加上方客服微信，提供付款截图，我们会尽快为你处理。</div>
+    <div class="faq-a">请发邮件至 chaliewonka@163.com，附上付款截图，我们会尽快为你处理。</div>
   </div>
   <div class="faq-item">
     <div class="faq-q">支持退款吗？</div>
-    <div class="faq-a">虚拟商品，激活后不支持退款。未激活的卡密可联系客服退款。</div>
+    <div class="faq-a">虚拟商品，激活后不支持退款。未激活的卡密可发邮件至客服邮箱申请退款。</div>
   </div>
 </div>
 
@@ -450,6 +529,90 @@
 <div style="text-align:center;font-size:0.72em;color:var(--muted);padding:10px;line-height:1.6;">
   ⚠️ 免责声明：本工具仅供娱乐参考，不构成任何投注建议。
 </div>
+
+<script>
+// Firebase (same config as main app)
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDk4xoXRQzfWUQtkQwFFM0Kk1ehiBlSKRI",
+  authDomain: "pinball-strategy.firebaseapp.com",
+  projectId: "pinball-strategy",
+  storageBucket: "pinball-strategy.firebasestorage.app",
+  messagingSenderId: "367036781432",
+  appId: "1:367036781432:web:367add79ba8d6d5654ee8d"
+};
+let db = null;
+try {
+  if (FIREBASE_CONFIG.apiKey && typeof firebase !== 'undefined') {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+  }
+} catch(e) { console.warn('Firebase init skipped:', e); }
+
+function isValidContact(v) {
+  // 手机号：11位数字
+  if (/^1[3-9]\d{9}$/.test(v)) return true;
+  // 邮箱
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return true;
+  return false;
+}
+
+async function revealQRCodes() {
+  const input = document.getElementById('buyerContact');
+  const errEl = document.getElementById('contactError');
+  const contact = input.value.trim();
+
+  if (!contact || !isValidContact(contact)) {
+    input.classList.add('error');
+    errEl.style.display = 'block';
+    return;
+  }
+  input.classList.remove('error');
+  errEl.style.display = 'none';
+
+  // 生成 6 位订单号
+  function genOrderId() {
+    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    var id = '';
+    var arr = new Uint8Array(6);
+    crypto.getRandomValues(arr);
+    for (var i = 0; i < 6; i++) id += chars[arr[i] % chars.length];
+    return id;
+  }
+  var orderId = genOrderId();
+
+  // 记录到 Firestore
+  const btn = document.getElementById('btnRevealQR');
+  btn.disabled = true;
+  btn.textContent = '请稍候...';
+  try {
+    if (db) {
+      await db.collection('orders').doc(orderId).set({
+        orderId: orderId,
+        contact: contact,
+        createdAt: new Date().toISOString(),
+        status: 'pending'
+      });
+    }
+  } catch(e) { console.warn('Failed to save order:', e); }
+
+  // 显示订单号和收款码
+  document.getElementById('contactForm').style.display = 'none';
+  document.getElementById('confirmedContact').textContent =
+    '✓ 卡密将发送至: ' + contact;
+  document.getElementById('orderIdDisplay').textContent = orderId;
+  document.getElementById('qrCodesSection').style.display = 'block';
+}
+
+// 回车键提交
+document.getElementById('buyerContact').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') revealQRCodes();
+});
+// 输入时清除错误状态
+document.getElementById('buyerContact').addEventListener('input', function() {
+  this.classList.remove('error');
+  document.getElementById('contactError').style.display = 'none';
+});
+</script>
 
 </body>
 </html>
