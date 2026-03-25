@@ -7,7 +7,7 @@ const BACKENDS = {
 };
 
 // Disable Vercel's auto body parser so we can forward raw body as-is
-// NOTE: config must be set AFTER function export (see bottom of file)
+export const config = { api: { bodyParser: false } };
 
 // Read raw body from request stream
 function getRawBody(req) {
@@ -19,7 +19,7 @@ function getRawBody(req) {
   });
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // CORS headers (always set)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -74,6 +74,3 @@ module.exports = async function handler(req, res) {
     res.status(502).json({ error: 'Proxy upstream error', message: err.message });
   }
 }
-
-// Set config AFTER module.exports assignment so it doesn't get overwritten
-module.exports.config = { api: { bodyParser: false } };
