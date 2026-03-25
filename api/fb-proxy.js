@@ -1,4 +1,4 @@
-// Vercel Serverless Function — Firebase API 代理
+// Vercel Serverless Function — Firebase API 代理 v2
 // 解决中国大陆无法直连 Google API 的问题
 const BACKENDS = {
   identitytoolkit: 'https://identitytoolkit.googleapis.com',
