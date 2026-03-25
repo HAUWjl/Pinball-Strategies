@@ -373,6 +373,16 @@
     <input type="text" id="activationCode" placeholder="输入卡密解锁更多机器" maxlength="32">
     <button class="btn-primary" style="width:auto;padding:10px 20px;margin:0;background:var(--yellow);color:#111;" onclick="redeemCode()">激活</button>
   </div>
+  <div id="proStatusRow" class="hidden" style="text-align:center;margin-top:6px;">
+    <span style="font-size:0.82em;color:var(--green);">✓ 已解锁 Pro 功能（最多 50 台机器）</span>
+  </div>
+  <div id="proFeatureHint" class="hidden" style="margin-top:8px;padding:8px 12px;background:rgba(255,215,0,0.08);border-radius:8px;font-size:0.78em;color:var(--muted);line-height:1.6;">
+    💡 <b style="color:var(--yellow);">卡密可解锁 Pro 功能：</b><br>
+    · 最多管理 50 台机器（当前限 3 台）<br>
+    · 运行中自由切换 积分卡/珠子收益 策略<br>
+    · 记录模式：仅记录落点拟合概率分布<br>
+    · 实时概率偏差 & 准确度分析
+  </div>
 </div>
 
 <!-- ====== Step 1: 配置 ====== -->
@@ -429,6 +439,11 @@
       <span>投入: <b id="statMarblesIn" style="color:var(--highlight);">0</b></span>
       <span>吐出: <b id="statMarblesOut" style="color:var(--green);">0</b></span>
       <span>净收益: <b id="statMarblesNet">0</b></span>
+    </div>
+    <div id="priorityToggle" class="hidden" style="display:none;margin-top:8px;text-align:center;">
+      <span style="font-size:0.82em;color:var(--muted);margin-right:6px;">策略目标:</span>
+      <button class="mode-btn active" id="priCards" onclick="switchPriority('cards')" style="font-size:0.82em;padding:4px 10px;">🃏 积分卡优先</button>
+      <button class="mode-btn" id="priMarbles" onclick="switchPriority('marbles')" style="font-size:0.82em;padding:4px 10px;">💰 珠子收益优先</button>
     </div>
   </div>
 
@@ -810,7 +825,13 @@ function updateQuotaDisplay() {
   const el = document.getElementById('machineQuota');
   if (el) el.textContent = '机器数量: ' + machines.length + ' / ' + max;
   const actRow = document.getElementById('activationRow');
-  if (actRow) actRow.classList.toggle('hidden', !cloudUid || userMaxMachines >= LIMIT_ACTIVATED);
+  const proStatus = document.getElementById('proStatusRow');
+  const proHint = document.getElementById('proFeatureHint');
+  const activated = cloudUid && userMaxMachines >= LIMIT_ACTIVATED;
+  const loggedNotActivated = cloudUid && userMaxMachines < LIMIT_ACTIVATED;
+  if (actRow) actRow.classList.toggle('hidden', !loggedNotActivated);
+  if (proStatus) proStatus.classList.toggle('hidden', !activated);
+  if (proHint) proHint.classList.toggle('hidden', !loggedNotActivated);
 }
 
 async function redeemCode() {
@@ -891,6 +912,7 @@ function selectMachine(id) {
     refreshProbs();
     renderHistory();
     initGameMode();
+    initPriorityToggle();
     refreshMarbleStats();
   } else {
     // New machine, no data → go to setup
@@ -1035,6 +1057,7 @@ function initMachine() {
   refreshProbs();
   renderHistory();
   initGameMode();
+  initPriorityToggle();
   refreshMarbleStats();
 }
 
@@ -1202,6 +1225,34 @@ function prepareNextRound() {
   document.querySelectorAll('#slotGrid .slot-btn').forEach(b => b.classList.remove('selected'));
   document.getElementById('litCount').textContent = '-';
   window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+// ── Priority Toggle (activated feature) ──
+function switchPriority(p) {
+  if (!strategy) return;
+  strategy.priority = p;
+  strategy._save();
+  document.getElementById('priCards').classList.toggle('active', p === 'cards');
+  document.getElementById('priMarbles').classList.toggle('active', p === 'marbles');
+  document.getElementById('configSummary').textContent =
+    `[${currentMachineId}] T=${strategy.T}  J=${strategy.J}  ${p==='cards'?'积分卡优先':'珠子优先'}`;
+  showToast(p === 'cards' ? '已切换为积分卡优先' : '已切换为珠子收益优先');
+}
+
+function initPriorityToggle() {
+  const el = document.getElementById('priorityToggle');
+  if (!el) return;
+  if (isActivated()) {
+    el.classList.remove('hidden');
+    el.style.display = '';
+    if (strategy) {
+      document.getElementById('priCards').classList.toggle('active', strategy.priority === 'cards');
+      document.getElementById('priMarbles').classList.toggle('active', strategy.priority === 'marbles');
+    }
+  } else {
+    el.classList.add('hidden');
+    el.style.display = 'none';
+  }
 }
 
 // ── Record-only Mode (activated feature) ──
