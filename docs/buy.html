@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1a2e">
+<title>购买 Pro 卡密 - 弹珠机策略顾问</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #16213e;
+    --accent: #0f3460;
+    --highlight: #e94560;
+    --green: #4ecca3;
+    --yellow: #f0c040;
+    --text: #eee;
+    --muted: #999;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 16px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .back-link {
+    display: inline-block;
+    color: var(--green);
+    text-decoration: none;
+    font-size: 0.9em;
+    margin-bottom: 12px;
+  }
+  .back-link:hover { text-decoration: underline; }
+
+  h1 {
+    text-align: center;
+    font-size: 1.5em;
+    margin: 8px 0 6px;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85em;
+    margin-bottom: 20px;
+  }
+
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 1.1em;
+    color: var(--green);
+    margin-bottom: 12px;
+  }
+
+  /* Pro 功能列表 */
+  .feature-list {
+    list-style: none;
+    padding: 0;
+  }
+  .feature-list li {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.92em;
+    line-height: 1.5;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .feature-list li:last-child { border-bottom: none; }
+  .feature-icon {
+    color: var(--yellow);
+    flex-shrink: 0;
+    font-size: 1.1em;
+  }
+  .feature-text b { color: var(--text); }
+  .feature-text { color: var(--muted); }
+
+  /* 价格区域 */
+  .price-box {
+    text-align: center;
+    padding: 20px 0;
+  }
+  .price-tag {
+    font-size: 2.2em;
+    font-weight: 700;
+    color: var(--yellow);
+  }
+  .price-tag .currency { font-size: 0.5em; vertical-align: super; }
+  .price-tag .period { font-size: 0.35em; color: var(--muted); font-weight: 400; }
+  .price-note {
+    font-size: 0.82em;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  /* 对比表 */
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85em;
+    margin-top: 10px;
+  }
+  .compare-table th, .compare-table td {
+    padding: 8px 6px;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .compare-table th {
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 0.9em;
+  }
+  .compare-table td:first-child {
+    text-align: left;
+    color: var(--muted);
+  }
+  .compare-table .check { color: var(--green); }
+  .compare-table .cross { color: #555; }
+  .compare-table .pro-col { color: var(--yellow); font-weight: 600; }
+
+  /* 购买步骤 */
+  .steps {
+    counter-reset: step;
+    padding: 0;
+    list-style: none;
+  }
+  .steps li {
+    counter-increment: step;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.9em;
+    line-height: 1.6;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .steps li:last-child { border-bottom: none; }
+  .step-num {
+    background: var(--accent);
+    color: var(--green);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85em;
+    flex-shrink: 0;
+  }
+  .step-num::before { content: counter(step); }
+
+  /* 收款码区域 */
+  .qr-section {
+    text-align: center;
+    padding: 16px 0;
+  }
+  .qr-row {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .qr-item {
+    text-align: center;
+  }
+  .qr-placeholder {
+    width: 140px;
+    height: 140px;
+    background: var(--bg);
+    border: 2px dashed #333;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 0.8em;
+    margin-bottom: 6px;
+  }
+  .qr-label {
+    font-size: 0.82em;
+    color: var(--muted);
+  }
+  .qr-label.wechat { color: #07c160; }
+  .qr-label.alipay { color: #1677ff; }
+
+  /* 联系方式 */
+  .contact-info {
+    text-align: center;
+    font-size: 0.88em;
+    line-height: 1.8;
+    color: var(--muted);
+  }
+  .contact-info b { color: var(--text); }
+
+  /* 按钮 */
+  .btn-primary {
+    display: block;
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--green);
+    color: #111;
+    margin-top: 12px;
+    text-decoration: none;
+    text-align: center;
+    transition: opacity .2s;
+  }
+  .btn-primary:active { opacity: 0.7; }
+  .btn-outline {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--green);
+    border-radius: 8px;
+    font-size: 0.92em;
+    cursor: pointer;
+    background: transparent;
+    color: var(--green);
+    margin-top: 10px;
+    text-decoration: none;
+    text-align: center;
+  }
+
+  /* FAQ */
+  .faq-item {
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .faq-item:last-child { border-bottom: none; }
+  .faq-q {
+    font-size: 0.9em;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .faq-a {
+    font-size: 0.82em;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .divider {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin: 16px 0;
+  }
+
+  .badge {
+    display: inline-block;
+    background: var(--highlight);
+    color: #fff;
+    font-size: 0.7em;
+    padding: 2px 8px;
+    border-radius: 10px;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+
+<a href="index.html" class="back-link">← 返回策略顾问</a>
+
+<h1>🎯 Pro 版卡密</h1>
+<p class="subtitle">解锁全部功能，让策略更精准</p>
+
+<!-- 功能对比 -->
+<div class="card">
+  <h2>📊 免费版 vs Pro 版</h2>
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>功能</th>
+        <th>免费版</th>
+        <th class="pro-col">Pro 版</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>机器管理数量</td>
+        <td>最多 3 台</td>
+        <td class="pro-col">最多 50 台</td>
+      </tr>
+      <tr>
+        <td>贝叶斯概率推断</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td>V2 自适应投注策略</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td>策略实时切换</td>
+        <td class="cross">✗</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td>记录模式</td>
+        <td class="cross">✗</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td>概率偏差分析</td>
+        <td class="cross">✗</td>
+        <td class="check">✓</td>
+      </tr>
+      <tr>
+        <td>云端数据同步</td>
+        <td class="check">✓</td>
+        <td class="check">✓</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- 价格 -->
+<div class="card">
+  <h2>💰 价格</h2>
+  <div class="price-box">
+    <div class="price-tag">
+      <span class="currency">¥</span>9.9
+      <span class="period"> / 永久</span>
+    </div>
+    <div class="price-note">一次购买，永久使用，不限设备</div>
+  </div>
+</div>
+
+<!-- Pro 功能详情 -->
+<div class="card">
+  <h2>✨ Pro 功能详情</h2>
+  <ul class="feature-list">
+    <li>
+      <span class="feature-icon">🎰</span>
+      <span class="feature-text"><b>50 台机器管理</b> — 同时追踪多台机器的概率分布，掌控全场</span>
+    </li>
+    <li>
+      <span class="feature-icon">🔄</span>
+      <span class="feature-text"><b>策略实时切换</b> — 运行中自由切换积分卡优先/珠子收益优先策略</span>
+    </li>
+    <li>
+      <span class="feature-icon">📝</span>
+      <span class="feature-text"><b>记录模式</b> — 仅记录落点，不下注也能拟合概率分布，观察再出手</span>
+    </li>
+    <li>
+      <span class="feature-icon">📈</span>
+      <span class="feature-text"><b>概率偏差分析</b> — 实时显示各口概率偏差与置信度，找出高概率落点</span>
+    </li>
+  </ul>
+</div>
+
+<!-- 购买流程 -->
+<div class="card">
+  <h2>🛒 如何购买</h2>
+  <ol class="steps">
+    <li>
+      <span class="step-num"></span>
+      <span>扫描下方收款码，支付 <b style="color:var(--yellow);">¥9.9</b></span>
+    </li>
+    <li>
+      <span class="step-num"></span>
+      <span>付款时备注你的 <b style="color:var(--green);">手机号</b> 或 <b style="color:var(--green);">微信号</b></span>
+    </li>
+    <li>
+      <span class="step-num"></span>
+      <span>添加客服微信（或等待自动回复），获取 <b style="color:var(--yellow);">Pro 卡密</b></span>
+    </li>
+    <li>
+      <span class="step-num"></span>
+      <span>回到策略顾问页面，登录后在卡密输入框粘贴激活即可</span>
+    </li>
+  </ol>
+</div>
+
+<!-- 收款码 -->
+<div class="card">
+  <h2>💳 扫码支付</h2>
+  <div class="qr-section">
+    <div class="qr-row">
+      <div class="qr-item">
+        <div class="qr-placeholder" id="wechatQR">
+          请替换为<br>微信收款码
+        </div>
+        <div class="qr-label wechat">微信支付</div>
+      </div>
+      <div class="qr-item">
+        <div class="qr-placeholder" id="alipayQR">
+          请替换为<br>支付宝收款码
+        </div>
+        <div class="qr-label alipay">支付宝</div>
+      </div>
+    </div>
+    <p style="font-size:0.78em;color:var(--muted);margin-top:12px;">
+      付款时请务必备注联系方式，以便发送卡密
+    </p>
+  </div>
+</div>
+
+<!-- 联系方式 -->
+<div class="card">
+  <h2>📬 联系客服</h2>
+  <div class="contact-info">
+    <p>微信号：<b>请填写你的微信号</b></p>
+    <p>QQ：<b>请填写你的QQ号</b></p>
+    <p style="font-size:0.8em;margin-top:8px;">
+      付款后 5 分钟内未收到卡密？请联系客服处理
+    </p>
+  </div>
+</div>
+
+<!-- FAQ -->
+<div class="card">
+  <h2>❓ 常见问题</h2>
+  <div class="faq-item">
+    <div class="faq-q">卡密可以多设备使用吗？</div>
+    <div class="faq-a">可以。Pro 卡密绑定账号，登录同一账号即可在任意设备使用。</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">卡密有有效期吗？</div>
+    <div class="faq-a">没有。一次激活，永久有效。</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">已付款但没收到卡密怎么办？</div>
+    <div class="faq-a">请添加上方客服微信，提供付款截图，我们会尽快为你处理。</div>
+  </div>
+  <div class="faq-item">
+    <div class="faq-q">支持退款吗？</div>
+    <div class="faq-a">虚拟商品，激活后不支持退款。未激活的卡密可联系客服退款。</div>
+  </div>
+</div>
+
+<a href="index.html" class="btn-primary" style="margin-bottom:20px;">← 返回使用策略顾问</a>
+
+<div style="text-align:center;font-size:0.72em;color:var(--muted);padding:10px;line-height:1.6;">
+  ⚠️ 免责声明：本工具仅供娱乐参考，不构成任何投注建议。
+</div>
+
+</body>
+</html>
