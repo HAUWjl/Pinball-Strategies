@@ -3,9 +3,7 @@
   "buildCommand": "",
   "installCommand": "",
   "framework": null,
-  "rewrites": [
-    { "source": "/fb-proxy/identitytoolkit/:path*", "destination": "https://identitytoolkit.googleapis.com/:path*" },
-    { "source": "/fb-proxy/securetoken/:path*", "destination": "https://securetoken.googleapis.com/:path*" },
-    { "source": "/fb-proxy/firestore/:path*", "destination": "https://firestore.googleapis.com/:path*" }
-  ]
+  "functions": {
+    "api/fb-proxy.js": { "maxDuration": 10 }
+  }
 }

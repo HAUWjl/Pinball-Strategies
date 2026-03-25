@@ -9,44 +9,49 @@
 <link rel="manifest" href="manifest.json">
 <script>
 // ── Firebase API 代理（解决中国大陆无法访问 Google 服务的问题）──
-// 必须在 Firebase SDK 加载之前定义
+// 通过 /api/fb-proxy serverless 函数转发 Firebase API 请求
 (function(){
   window.__fbProxyActive = false;
-  var PROXY_TARGETS = [
-    ['https://identitytoolkit.googleapis.com', '/fb-proxy/identitytoolkit'],
-    ['https://securetoken.googleapis.com', '/fb-proxy/securetoken'],
-    ['https://firestore.googleapis.com', '/fb-proxy/firestore']
-  ];
+  var SERVICES = ['identitytoolkit.googleapis.com', 'securetoken.googleapis.com', 'firestore.googleapis.com'];
+  function rewriteUrl(originalUrl) {
+    for (var i = 0; i < SERVICES.length; i++) {
+      var prefix = 'https://' + SERVICES[i] + '/';
+      if (originalUrl.indexOf(prefix) === 0) {
+        var rest = originalUrl.substring(prefix.length);
+        var svc = SERVICES[i].split('.')[0]; // identitytoolkit | securetoken | firestore
+        // Split path and query
+        var qIdx = rest.indexOf('?');
+        var path = qIdx >= 0 ? rest.substring(0, qIdx) : rest;
+        var query = qIdx >= 0 ? rest.substring(qIdx + 1) : '';
+        var proxyUrl = '/api/fb-proxy?p=' + encodeURIComponent(svc + '/' + path);
+        if (query) proxyUrl += '&' + query;
+        return proxyUrl;
+      }
+    }
+    return null;
+  }
   window.__activateFirebaseProxy = function() {
     if (window.__fbProxyActive) return;
     window.__fbProxyActive = true;
-    // Patch fetch
     var origFetch = window.fetch;
     window.fetch = function(input, init) {
       var url = (typeof input === 'string') ? input : (input instanceof Request ? input.url : String(input));
-      for (var i = 0; i < PROXY_TARGETS.length; i++) {
-        if (url.indexOf(PROXY_TARGETS[i][0]) === 0) {
-          var newUrl = url.replace(PROXY_TARGETS[i][0], PROXY_TARGETS[i][1]);
-          if (typeof input === 'string') return origFetch.call(this, newUrl, init);
-          return origFetch.call(this, new Request(newUrl, input), init);
-        }
+      var newUrl = rewriteUrl(url);
+      if (newUrl) {
+        if (typeof input === 'string') return origFetch.call(this, newUrl, init);
+        return origFetch.call(this, new Request(newUrl, input), init);
       }
       return origFetch.call(this, input, init);
     };
-    // Patch XMLHttpRequest
     var origOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url) {
       if (typeof url === 'string') {
-        for (var i = 0; i < PROXY_TARGETS.length; i++) {
-          if (url.indexOf(PROXY_TARGETS[i][0]) === 0) {
-            arguments[1] = url.replace(PROXY_TARGETS[i][0], PROXY_TARGETS[i][1]);
-            break;
-          }
-        }
+        var newUrl = rewriteUrl(url);
+        if (newUrl) arguments[1] = newUrl;
       }
       return origOpen.apply(this, arguments);
     };
-    console.log('[Proxy] Firebase API proxy activated');
+    console.log('[Proxy] Firebase API proxy activated via /api/fb-proxy');
   };
 })();
 </script>
@@ -835,8 +840,8 @@ function probeFirebaseDirect() {
 }
 function probeProxy() {
   return new Promise(resolve => {
-    const timeout = setTimeout(() => resolve(false), 4000);
-    fetch('/fb-proxy/identitytoolkit/v1/accounts:lookup?key=' + FIREBASE_CONFIG.apiKey,
+    const timeout = setTimeout(() => resolve(false), 6000);
+    fetch('/api/fb-proxy?p=' + encodeURIComponent('identitytoolkit/v1/accounts:lookup') + '&key=' + FIREBASE_CONFIG.apiKey,
       { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' })
       .then(r => { clearTimeout(timeout); resolve(r.status !== 404 && r.status !== 0); })
       .catch(() => { clearTimeout(timeout); resolve(false); });
