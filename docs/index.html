@@ -409,6 +409,11 @@
       <span id="configSummary" style="color:var(--muted);"></span>
       <button class="btn-small btn-outline" onclick="resetSetup()">返回首页</button>
     </div>
+    <div id="marbleStats" style="display:flex;justify-content:space-around;margin-top:8px;font-size:0.85em;">
+      <span>投入: <b id="statMarblesIn" style="color:var(--highlight);">0</b></span>
+      <span>吐出: <b id="statMarblesOut" style="color:var(--green);">0</b></span>
+      <span>净收益: <b id="statMarblesNet">0</b></span>
+    </div>
   </div>
 
   <!-- 模式切换（卡密激活后可见） -->
@@ -652,6 +657,8 @@ class PinballStrategy {
     this.priorWeight = priorWeight;
     this.landingCounts = new Array(NUM_SLOTS).fill(0);
     this.totalPlays = 0;
+    this.totalMarblesIn = 0;
+    this.totalMarblesOut = 0;
   }
 
   getLandingProbs() {
@@ -733,6 +740,8 @@ class PinballStrategy {
       priorWeight: this.priorWeight,
       landingCounts: this.landingCounts,
       totalPlays: this.totalPlays,
+      totalMarblesIn: this.totalMarblesIn,
+      totalMarblesOut: this.totalMarblesOut,
     };
     try { localStorage.setItem('pb_state_' + currentMachineId, JSON.stringify(data)); } catch(e) {}
     cloudPushState(currentMachineId, data);
@@ -746,6 +755,8 @@ class PinballStrategy {
       const s = new PinballStrategy(d.T, d.J, d.priority, d.priorWeight);
       s.landingCounts = d.landingCounts;
       s.totalPlays = d.totalPlays;
+      s.totalMarblesIn = d.totalMarblesIn || 0;
+      s.totalMarblesOut = d.totalMarblesOut || 0;
       return s;
     } catch(e) { return null; }
   }
@@ -862,6 +873,7 @@ function selectMachine(id) {
     refreshProbs();
     renderHistory();
     initGameMode();
+    refreshMarbleStats();
   } else {
     // New machine, no data → go to setup
     gameHistory = [];
@@ -889,7 +901,7 @@ function renderMachineList() {
     const safe = escHtml(m.id);
     const s = PinballStrategy.load(m.id);
     const detail = s
-      ? `T=${s.T} J=${s.J} | ${s.priority==='cards'?'积分卡优先':'珠子优先'} | ${s.totalPlays} 局`
+      ? `T=${s.T} J=${s.J} | ${s.totalPlays}局 | 投${s.totalMarblesIn} 出${s.totalMarblesOut}`
       : '尚未配置';
     const card = document.createElement('div');
     card.className = 'machine-card';
@@ -1004,6 +1016,7 @@ function initMachine() {
   refreshProbs();
   renderHistory();
   initGameMode();
+  refreshMarbleStats();
 }
 
 function resetSetup() {
@@ -1133,10 +1146,16 @@ function recordSlot() {
   strategy.recordLanding(recordSlotSelected);
 
   const isWin = lastRec && lastRec.litSlots.includes(recordSlotSelected);
-  addHistory(lastRec ? lastRec.multiplier : selectedMult, recordSlotSelected, isWin, lastRec ? lastRec.optimalBet : MIN_BET);
+  const bet = lastRec ? lastRec.optimalBet : MIN_BET;
+  const mult = lastRec ? lastRec.multiplier : selectedMult;
+  strategy.totalMarblesIn += bet;
+  if (isWin) strategy.totalMarblesOut += mult * bet;
+  strategy._save();
+  addHistory(mult, recordSlotSelected, isWin, bet);
 
   showToast(`✓ 已记录槽位 ${recordSlotSelected+1}（共 ${strategy.totalPlays} 局）`);
   refreshProbs();
+  refreshMarbleStats();
   prepareNextRound();
 }
 
@@ -1341,6 +1360,21 @@ function renderEVTable(rows) {
     `;
     tbody.appendChild(tr);
   });
+}
+
+// ── Marble stats ──
+function refreshMarbleStats() {
+  if (!strategy) return;
+  const inEl = document.getElementById('statMarblesIn');
+  const outEl = document.getElementById('statMarblesOut');
+  const netEl = document.getElementById('statMarblesNet');
+  if (inEl) inEl.textContent = strategy.totalMarblesIn;
+  if (outEl) outEl.textContent = strategy.totalMarblesOut;
+  if (netEl) {
+    const net = strategy.totalMarblesOut - strategy.totalMarblesIn;
+    netEl.textContent = (net >= 0 ? '+' : '') + net;
+    netEl.style.color = net >= 0 ? 'var(--green)' : 'var(--highlight)';
+  }
 }
 
 // ── Toggle section ──
