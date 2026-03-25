@@ -780,9 +780,31 @@ let userMaxMachines = LIMIT_LOGIN;
   } catch(e) {}
 })();
 
+// ── Proactive Firebase connectivity check ──
+function probeFirebaseNetwork() {
+  return new Promise(resolve => {
+    const timeout = setTimeout(() => resolve(false), 5000);
+    fetch('https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=' + FIREBASE_CONFIG.apiKey, { mode: 'cors' })
+      .then(r => { clearTimeout(timeout); resolve(r.ok || r.status === 400); })
+      .catch(() => { clearTimeout(timeout); resolve(false); });
+  });
+}
+function showNetworkHintProactive() {
+  document.getElementById('authNetworkHint').classList.remove('hidden');
+  const offBtn = document.querySelector('#authPanel .btn-outline');
+  if (offBtn) {
+    offBtn.style.cssText = 'margin-top:6px;background:var(--green);color:#111;font-weight:700;font-size:1.05em;padding:10px 0;';
+    offBtn.textContent = '👉 直接离线使用（无需登录）';
+  }
+}
+
 // ── Init: check Firebase auth or go offline ──
 document.addEventListener('DOMContentLoaded', () => {
   if (fbReady) {
+    // Start connectivity probe as soon as auth panel may show
+    let networkOk = null;
+    probeFirebaseNetwork().then(ok => { networkOk = ok; });
+
     fbAuth.onAuthStateChanged(async user => {
       if (user) {
         cloudUid = user.uid;
@@ -799,6 +821,12 @@ document.addEventListener('DOMContentLoaded', () => {
         cloudUid = null;
         document.getElementById('userBar').classList.add('hidden');
         showPanel('auth');
+        // Wait for probe result, then show hint if needed
+        if (networkOk === false) {
+          showNetworkHintProactive();
+        } else if (networkOk === null) {
+          probeFirebaseNetwork().then(ok => { if (!ok) showNetworkHintProactive(); });
+        }
       }
     });
   } else {
