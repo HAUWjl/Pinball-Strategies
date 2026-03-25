@@ -6,7 +6,7 @@ const BACKENDS = {
   firestore: 'https://firestore.googleapis.com',
 };
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Path: /api/fb-proxy?p=identitytoolkit/v1/accounts:lookup&key=xxx
   const p = req.query.p || '';
   const slashIdx = p.indexOf('/');

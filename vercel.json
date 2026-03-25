@@ -1,7 +1,5 @@
 {
   "outputDirectory": "docs",
-  "buildCommand": "",
-  "installCommand": "",
   "functions": {
     "api/fb-proxy.js": { "maxDuration": 10 }
   }
