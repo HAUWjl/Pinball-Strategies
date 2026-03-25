@@ -298,6 +298,26 @@
   }
   .user-bar .user-email { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
   .sync-status { font-size: 0.8em; color: var(--yellow); margin-left: 8px; }
+
+  /* Mode toggle */
+  .mode-toggle { display: flex; gap: 8px; }
+  .mode-btn {
+    flex: 1; padding: 10px 0; border-radius: 8px; border: 2px solid #444;
+    background: var(--bg); color: var(--muted); font-size: 0.9em; font-weight: 600;
+    cursor: pointer; text-align: center; transition: all .15s;
+    width: auto; margin: 0;
+  }
+  .mode-btn.active { background: var(--accent); color: var(--green); border-color: var(--green); }
+  .deviation-box {
+    background: var(--accent); border-radius: 10px; padding: 14px; margin-top: 12px; text-align: center;
+  }
+  .deviation-value { font-size: 1.8em; font-weight: 800; }
+  .deviation-label { font-size: 0.82em; color: var(--muted); margin-top: 2px; }
+  .slot-btn.just-recorded { animation: slotFlash .35s ease-out; }
+  @keyframes slotFlash {
+    0%, 20% { background: var(--green); color: #111; border-color: var(--green); }
+    100% { background: var(--bg); color: var(--text); border-color: #444; }
+  }
 </style>
 </head>
 <body>
@@ -391,8 +411,31 @@
     </div>
   </div>
 
+  <!-- 模式切换（卡密激活后可见） -->
+  <div id="modeToggle" class="card hidden" style="padding:10px 16px;">
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="modeStrategy" onclick="switchGameMode('strategy')">📊 策略模式</button>
+      <button class="mode-btn" id="modeRecord" onclick="switchGameMode('record')">📝 记录模式</button>
+    </div>
+  </div>
+
+  <!-- 快速记录（记录模式） -->
+  <div id="quickRecordPanel" class="card hidden">
+    <h2>📝 快速记录落点</h2>
+    <p style="font-size:0.85em;color:var(--muted);margin-bottom:8px;">点击球落入的槽位直接记录</p>
+    <div class="slot-grid" id="quickRecordGrid"></div>
+    <div id="deviationBox" class="deviation-box">
+      <div class="deviation-value" id="deviationValue" style="color:var(--muted);">0.0%</div>
+      <div class="deviation-label">概率偏差度（总变差距离）</div>
+      <div id="deviationTip" style="font-size:0.8em;margin-top:6px;color:var(--muted);">记录更多落点以观察偏差</div>
+    </div>
+    <div style="font-size:0.72em;color:var(--muted);margin-top:8px;line-height:1.5;">
+      偏差度衡量观测分布与均匀分布的差异：0% 为完全均匀，越高表示特定槽位概率偏差越大，可切换到策略模式利用偏差。
+    </div>
+  </div>
+
   <!-- 新一局 -->
-  <div class="card">
+  <div id="strategyCard" class="card">
     <h2>🎲 新一局</h2>
     <label>选择倍数</label>
     <div class="mult-row" id="multRow"></div>
@@ -448,7 +491,7 @@
   </div>
 
   <!-- EV 表 -->
-  <div class="card">
+  <div id="evCard" class="card">
     <div class="section-toggle" onclick="toggleSection(this, 'evContent')">
       <h2 style="margin:0;">📋 基准期望值表</h2>
     </div>
@@ -808,6 +851,7 @@ function selectMachine(id) {
     renderEVTable(PinballStrategy.expectedValueTable(s.T, s.J));
     refreshProbs();
     renderHistory();
+    initGameMode();
   } else {
     // New machine, no data → go to setup
     gameHistory = [];
@@ -873,6 +917,7 @@ let selectedMult = null;
 let selectedLitSlots = new Set();
 let recordSlotSelected = null;
 let gameHistory = [];
+let currentGameMode = 'strategy';
 let userMaxMachines = LIMIT_LOGIN;
 
 // ── Migrate old single-machine data if present ──
@@ -948,12 +993,14 @@ function initMachine() {
   renderEVTable(PinballStrategy.expectedValueTable(T, J));
   refreshProbs();
   renderHistory();
+  initGameMode();
 }
 
 function resetSetup() {
   strategy = null;
   currentMachineId = null;
   gameHistory = [];
+  currentGameMode = 'strategy';
   renderMachineList();
   showPanel('machine');
 }
@@ -1099,6 +1146,101 @@ function prepareNextRound() {
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
+// ── Record-only Mode (activated feature) ──
+function isActivated() { return userMaxMachines >= LIMIT_ACTIVATED; }
+
+function initGameMode() {
+  const toggle = document.getElementById('modeToggle');
+  if (isActivated()) {
+    toggle.classList.remove('hidden');
+  } else {
+    toggle.classList.add('hidden');
+  }
+  switchGameMode('strategy');
+  buildQuickRecordGrid();
+}
+
+function switchGameMode(mode) {
+  currentGameMode = mode;
+  document.getElementById('modeStrategy').classList.toggle('active', mode === 'strategy');
+  document.getElementById('modeRecord').classList.toggle('active', mode === 'record');
+  if (mode === 'strategy') {
+    document.getElementById('strategyCard').classList.remove('hidden');
+    document.getElementById('evCard').classList.remove('hidden');
+    document.getElementById('quickRecordPanel').classList.add('hidden');
+  } else {
+    document.getElementById('strategyCard').classList.add('hidden');
+    document.getElementById('resultPanel').classList.add('hidden');
+    document.getElementById('evCard').classList.add('hidden');
+    document.getElementById('quickRecordPanel').classList.remove('hidden');
+    updateDeviation();
+  }
+}
+
+function buildQuickRecordGrid() {
+  const grid = document.getElementById('quickRecordGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  for (let i = 0; i < NUM_SLOTS; i++) {
+    const btn = document.createElement('div');
+    btn.className = 'slot-btn';
+    btn.textContent = (i + 1);
+    btn.dataset.slot = i;
+    btn.onclick = () => quickRecord(i, btn);
+    grid.appendChild(btn);
+  }
+}
+
+function quickRecord(slot, btn) {
+  if (!strategy) return;
+  strategy.recordLanding(slot);
+  gameHistory.push({ mode: 'record', slot: slot + 1, time: new Date().toLocaleTimeString() });
+  if (currentMachineId) {
+    try { localStorage.setItem('pb_history_' + currentMachineId, JSON.stringify(gameHistory)); } catch(e) {}
+    cloudPushHistory(currentMachineId, gameHistory);
+  }
+  renderHistory();
+  refreshProbs();
+  btn.classList.remove('just-recorded');
+  void btn.offsetWidth;
+  btn.classList.add('just-recorded');
+  showToast('\u2713 槽位 ' + (slot + 1) + '（共 ' + strategy.totalPlays + ' 局）');
+}
+
+function calculateDeviation() {
+  if (!strategy || strategy.totalPlays === 0) return 0;
+  const probs = strategy.getLandingProbs();
+  const uniform = 1.0 / NUM_SLOTS;
+  let tvd = 0;
+  for (let i = 0; i < NUM_SLOTS; i++) tvd += Math.abs(probs[i] - uniform);
+  return tvd / 2;
+}
+
+function updateDeviation() {
+  const el = document.getElementById('deviationValue');
+  const tipEl = document.getElementById('deviationTip');
+  if (!el || !tipEl) return;
+  const tvd = calculateDeviation();
+  el.textContent = (tvd * 100).toFixed(1) + '%';
+  if (!strategy || strategy.totalPlays === 0) {
+    el.style.color = 'var(--muted)';
+    tipEl.textContent = '记录更多落点以观察偏差';
+    tipEl.style.color = 'var(--muted)';
+  } else if (tvd < 0.05) {
+    el.style.color = 'var(--green)';
+    tipEl.textContent = '\u2713 分布接近均匀，偏差较小';
+    tipEl.style.color = 'var(--green)';
+  } else if (tvd < 0.15) {
+    el.style.color = 'var(--yellow)';
+    tipEl.textContent = '\u26A1 有一定偏差，可利用偏差制定策略';
+    tipEl.style.color = 'var(--yellow)';
+  } else {
+    el.style.color = 'var(--highlight)';
+    tipEl.textContent = '\uD83D\uDD25 偏差明显！建议切换到策略模式利用偏差';
+    tipEl.style.color = 'var(--highlight)';
+  }
+}
+
 // ── History ──
 function addHistory(mult, slot, win, bet) {
   gameHistory.push({mult, slot: slot+1, win, bet, time: new Date().toLocaleTimeString()});
@@ -1118,12 +1260,18 @@ function renderHistory() {
     return;
   }
   empty.style.display = 'none';
-  list.innerHTML = gameHistory.slice().reverse().map((h, i) =>
-    `<div class="history-item">
+  list.innerHTML = gameHistory.slice().reverse().map((h, i) => {
+    if (h.mode === 'record') {
+      return `<div class="history-item">
+        <span>#${gameHistory.length - i} ${h.time} → 槽${h.slot}</span>
+        <span style="color:var(--muted)">仅记录</span>
+      </div>`;
+    }
+    return `<div class="history-item">
       <span>#${gameHistory.length - i} ${h.time} ${h.mult}x 投${h.bet}颗 → 槽${h.slot}</span>
       <span class="${h.win?'win':'lose'}">${h.win?'中奖✓':'未中'}</span>
-    </div>`
-  ).join('');
+    </div>`;
+  }).join('');
 }
 
 // ── Probability bars ──
@@ -1148,6 +1296,7 @@ function refreshProbs() {
   });
   document.getElementById('probInfo').textContent =
     strategy.totalPlays > 0 ? `已统计 ${strategy.totalPlays} 局` : '尚无历史数据，使用均匀分布';
+  updateDeviation();
 }
 
 // ── EV Table ──
