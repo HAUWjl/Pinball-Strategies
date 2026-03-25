@@ -382,7 +382,8 @@
     · 运行中自由切换 积分卡/珠子收益 策略<br>
     · 记录模式：仅记录落点拟合概率分布<br>
     · 实时概率偏差 & 准确度分析<br>
-    <a href="buy.html" style="display:inline-block;margin-top:6px;padding:5px 14px;background:var(--yellow);color:#111;border-radius:6px;text-decoration:none;font-weight:600;font-size:1.05em;">🛒 购买 Pro 卡密 ¥9.9</a>
+    <a href="https://www.wcfaka.com/details/21CFABC5" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;padding:5px 14px;background:var(--green);color:#111;border-radius:6px;text-decoration:none;font-weight:600;font-size:1.05em;">⚡ 自助购买 Pro 卡密 ¥9.9</a>
+    <a href="buy.html" style="display:inline-block;margin-top:6px;margin-left:6px;padding:5px 14px;background:rgba(255,255,255,0.1);color:var(--muted);border-radius:6px;text-decoration:none;font-weight:500;font-size:0.9em;">手动购买</a>
   </div>
 </div>
 
@@ -847,7 +848,6 @@ async function redeemCode() {
       if (!doc.exists) throw new Error('卡密不存在');
       if (doc.data().used) throw new Error('卡密已被使用');
       tx.update(codeRef, { used: true, usedBy: cloudUid, usedAt: new Date().toISOString() });
-      tx.set(fbDb.collection('users').doc(cloudUid), { maxMachines: LIMIT_ACTIVATED }, { merge: true });
     });
     userMaxMachines = LIMIT_ACTIVATED;
     input.value = '';
@@ -1014,8 +1014,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('userBar').classList.remove('hidden');
         await cloudPullAll();
         try {
-          const uDoc = await fbDb.collection('users').doc(user.uid).get();
-          userMaxMachines = (uDoc.exists && uDoc.data().maxMachines) ? uDoc.data().maxMachines : LIMIT_LOGIN;
+          const codeSnap = await fbDb.collection('codes').where('usedBy', '==', user.uid).limit(1).get();
+          userMaxMachines = codeSnap.empty ? LIMIT_LOGIN : LIMIT_ACTIVATED;
         } catch(e) { userMaxMachines = LIMIT_LOGIN; }
         renderMachineList();
         showPanel('machine');
