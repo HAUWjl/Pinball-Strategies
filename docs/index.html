@@ -91,6 +91,15 @@
     gap: 8px;
     margin: 8px 0;
   }
+  .slot-grid.row-mode {
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+  }
+  .slot-grid.row-mode .slot-btn {
+    padding: 10px 0;
+    font-size: 0.85em;
+    border-radius: 6px;
+  }
   .slot-btn {
     padding: 12px 0;
     border-radius: 8px;
@@ -110,6 +119,13 @@
     border-color: var(--green);
   }
   .slot-btn:active { opacity: 0.7; }
+  .view-toggle-btn {
+    display: inline-block; padding: 2px 8px; font-size: 0.75em;
+    border: 1px solid #555; border-radius: 4px; background: transparent;
+    color: var(--muted); cursor: pointer; margin-left: 8px; vertical-align: middle;
+    width: auto; margin-top: 0;
+  }
+  .view-toggle-btn:active { opacity: 0.7; }
 
   .mult-row {
     display: flex;
@@ -427,7 +443,7 @@
   <!-- 快速记录（记录模式） -->
   <div id="quickRecordPanel" class="card hidden">
     <h2>📝 快速记录落点</h2>
-    <p style="font-size:0.85em;color:var(--muted);margin-bottom:8px;">点击球落入的槽位直接记录</p>
+    <p style="font-size:0.85em;color:var(--muted);margin-bottom:8px;">点击球落入的槽位直接记录 <button class="view-toggle-btn" onclick="toggleSlotView('quickRecordGrid',this)">↔ 横排</button></p>
     <div class="slot-grid" id="quickRecordGrid"></div>
     <div id="deviationBox" class="deviation-box">
       <div style="display:flex;justify-content:space-around;margin-bottom:10px;">
@@ -454,7 +470,7 @@
     <h2>🎲 新一局</h2>
     <label>选择倍数</label>
     <div class="mult-row" id="multRow"></div>
-    <label>选择亮灯槽位（<span id="litCount">-</span> 个）</label>
+    <label>选择亮灯槽位（<span id="litCount">-</span> 个）<button class="view-toggle-btn" onclick="toggleSlotView('slotGrid',this)">↔ 横排</button></label>
     <div class="slot-grid" id="slotGrid"></div>
     <button class="btn-accent" onclick="getRecommendation()">获取策略建议</button>
   </div>
@@ -485,7 +501,7 @@
     <div id="resTip" class="tip"></div>
 
     <div style="margin-top:14px;">
-      <label>记录落点（可选，提高后续精度）</label>
+      <label>记录落点（可选，提高后续精度）<button class="view-toggle-btn" onclick="toggleSlotView('recordGrid',this)">↔ 横排</button></label>
       <div class="slot-grid" id="recordGrid"></div>
       <div style="display:flex;gap:8px;">
         <button class="btn-small btn-primary" onclick="recordSlot()">记录落点</button>
@@ -1049,6 +1065,14 @@ function selectMult(m) {
     b.classList.toggle('selected', parseInt(b.dataset.mult) === m));
   document.getElementById('litCount').textContent = MULT_SLOTS[m];
   document.querySelectorAll('#slotGrid .slot-btn').forEach(b => b.classList.remove('selected'));
+}
+
+// ── Slot view toggle ──
+function toggleSlotView(gridId, btn) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+  const isRow = grid.classList.toggle('row-mode');
+  if (btn) btn.textContent = isRow ? '▦ 网格' : '↔ 横排';
 }
 
 // ── Slot grids ──
