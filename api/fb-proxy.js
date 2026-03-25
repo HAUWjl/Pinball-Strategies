@@ -6,43 +6,27 @@ const BACKENDS = {
   firestore: 'https://firestore.googleapis.com',
 };
 
-// Disable Vercel's auto body parser so we can forward raw body as-is
-export const config = { api: { bodyParser: false } };
-
-// Read raw body from request stream
-function getRawBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on('data', c => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // CORS headers (always set)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  // Debug mode
-  if (req.query.debug === '1') {
-    const rawBody = await getRawBody(req);
-    return res.status(200).json({
-      method: req.method,
-      contentType: req.headers['content-type'],
-      bodyType: typeof req.body,
-      bodyIsNull: req.body === null,
-      bodyIsUndefined: req.body === undefined,
-      bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : null,
-      rawBodyLength: rawBody.length,
-      rawBodyStr: rawBody.toString('utf8').substring(0, 200),
-    });
-  }
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
+  }
+
+  // Debug mode: show body diagnostics
+  if (req.query.debug === '1') {
+    return res.status(200).json({
+      method: req.method,
+      ct: req.headers['content-type'],
+      bodyType: typeof req.body,
+      isBuffer: Buffer.isBuffer(req.body),
+      bodyStr: typeof req.body === 'string' ? req.body.substring(0, 200) :
+               Buffer.isBuffer(req.body) ? req.body.toString('utf8').substring(0, 200) :
+               JSON.stringify(req.body).substring(0, 200),
+    });
   }
 
   // Path: /api/fb-proxy?p=identitytoolkit/v1/accounts:lookup&key=xxx
@@ -65,21 +49,36 @@ export default async function handler(req, res) {
     .join('&');
   const targetUrl = `${backend}/${rest}${qs ? '?' + qs : ''}`;
 
-  // Forward headers (keep content-type, authorization)
+  // Forward headers
   const fwdHeaders = {};
   if (req.headers['content-type']) fwdHeaders['Content-Type'] = req.headers['content-type'];
   if (req.headers['authorization']) fwdHeaders['Authorization'] = req.headers['authorization'];
 
-  try {
-    // Read raw body and forward as-is (preserves form-encoded, JSON, etc.)
-    const rawBody = req.method !== 'GET' && req.method !== 'HEAD'
-      ? await getRawBody(req)
-      : undefined;
+  // Reconstruct body from Vercel's parsed req.body
+  let body = undefined;
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.body != null) {
+    if (typeof req.body === 'string') {
+      body = req.body;
+    } else if (Buffer.isBuffer(req.body)) {
+      body = req.body;
+    } else if (typeof req.body === 'object') {
+      const ct = (req.headers['content-type'] || '').toLowerCase();
+      if (ct.includes('x-www-form-urlencoded')) {
+        // Re-encode as form data
+        body = Object.entries(req.body)
+          .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
+          .join('&');
+      } else {
+        body = JSON.stringify(req.body);
+      }
+    }
+  }
 
+  try {
     const upstream = await fetch(targetUrl, {
       method: req.method,
       headers: fwdHeaders,
-      body: rawBody && rawBody.length > 0 ? rawBody : undefined,
+      body: body || undefined,
     });
 
     const data = await upstream.text();
@@ -89,4 +88,5 @@ export default async function handler(req, res) {
   } catch (err) {
     res.status(502).json({ error: 'Proxy upstream error', message: err.message });
   }
+};
 }

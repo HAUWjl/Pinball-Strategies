@@ -1,6 +1,6 @@
 {
   "outputDirectory": "docs",
   "functions": {
-    "api/fb-proxy.mjs": { "maxDuration": 10 }
+    "api/fb-proxy.js": { "maxDuration": 10 }
   }
 }
