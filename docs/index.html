@@ -326,11 +326,16 @@
 <!-- ====== Step 0: 机器选择 ====== -->
 <div id="machinePanel" class="card hidden">
   <h2>🎰 选择机器</h2>
+  <div id="machineQuota" style="text-align:center;font-size:0.82em;color:var(--muted);margin-bottom:8px;"></div>
   <div id="machineList" class="machine-list"></div>
   <div id="machineEmpty" style="text-align:center;color:var(--muted);font-size:0.9em;padding:12px;">暂无机器，请添加</div>
   <div class="add-machine-row">
     <input type="text" id="newMachineName" placeholder="输入机器编号/名称" maxlength="30">
     <button class="btn-primary" style="width:auto;padding:10px 20px;margin:0;" onclick="addMachine()">添加</button>
+  </div>
+  <div id="activationRow" class="add-machine-row hidden" style="margin-top:6px;">
+    <input type="text" id="activationCode" placeholder="输入卡密解锁更多机器" maxlength="32">
+    <button class="btn-primary" style="width:auto;padding:10px 20px;margin:0;background:var(--yellow);color:#111;" onclick="redeemCode()">激活</button>
   </div>
 </div>
 
@@ -457,6 +462,11 @@
 
 <div id="toast" class="toast"></div>
 
+<div style="text-align:center;font-size:0.72em;color:var(--muted);padding:20px 10px 10px;line-height:1.6;">
+  ⚠️ 免责声明：本工具仅供娱乐参考，不构成任何投注建议。<br>
+  请勿用于商业用途。使用本工具所产生的任何损失，开发者概不负责。
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════════
 // Pinball Strategy Engine (pure JavaScript, mirrors pinball_strategy.py)
@@ -465,6 +475,9 @@ const NUM_SLOTS = 12;
 const MIN_BET = 5;
 const MAX_BET = 99;
 const MULT_SLOTS = {2:4, 4:3, 6:2, 8:1, 10:1};
+const LIMIT_OFFLINE = 1;
+const LIMIT_LOGIN = 3;
+const LIMIT_ACTIVATED = 50;
 
 // ═══════════════════════════════════════════════════════════════════
 // Firebase Configuration
@@ -690,11 +703,55 @@ function saveMachines(machines) {
   cloudPushMachineList(machines);
 }
 
+function getMaxMachines() {
+  if (!cloudUid) return LIMIT_OFFLINE;
+  return userMaxMachines;
+}
+
+function updateQuotaDisplay() {
+  const machines = getMachines();
+  const max = getMaxMachines();
+  const el = document.getElementById('machineQuota');
+  if (el) el.textContent = '机器数量: ' + machines.length + ' / ' + max;
+  const actRow = document.getElementById('activationRow');
+  if (actRow) actRow.classList.toggle('hidden', !cloudUid || userMaxMachines >= LIMIT_ACTIVATED);
+}
+
+async function redeemCode() {
+  if (!fbReady || !cloudUid) { showToast('请先登录'); return; }
+  const input = document.getElementById('activationCode');
+  const code = input.value.trim();
+  if (!code) { showToast('请输入卡密'); return; }
+  try {
+    const codeRef = fbDb.collection('codes').doc(code);
+    await fbDb.runTransaction(async tx => {
+      const doc = await tx.get(codeRef);
+      if (!doc.exists) throw new Error('卡密不存在');
+      if (doc.data().used) throw new Error('卡密已被使用');
+      tx.update(codeRef, { used: true, usedBy: cloudUid, usedAt: new Date().toISOString() });
+      tx.set(fbDb.collection('users').doc(cloudUid), { maxMachines: LIMIT_ACTIVATED }, { merge: true });
+    });
+    userMaxMachines = LIMIT_ACTIVATED;
+    input.value = '';
+    showToast('激活成功！最多可添加 ' + LIMIT_ACTIVATED + ' 台机器');
+    updateQuotaDisplay();
+  } catch(e) {
+    showToast(e.message || '激活失败');
+  }
+}
+
 function addMachine() {
   const input = document.getElementById('newMachineName');
   const name = input.value.trim();
   if (!name) { showToast('请输入机器名称'); return; }
   const machines = getMachines();
+  const max = getMaxMachines();
+  if (machines.length >= max) {
+    if (!cloudUid) showToast('离线模式最多 ' + max + ' 台机器，登录后可添加更多');
+    else if (userMaxMachines < LIMIT_ACTIVATED) showToast('当前最多 ' + max + ' 台机器，使用卡密可解锁更多');
+    else showToast('已达最大数量限制 (' + max + ')');
+    return;
+  }
   if (machines.some(m => m.id === name)) { showToast('该名称已存在'); return; }
   machines.push({ id: name, createdAt: new Date().toLocaleString() });
   saveMachines(machines);
@@ -749,6 +806,7 @@ function escHtml(s) {
 }
 
 function renderMachineList() {
+  updateQuotaDisplay();
   const machines = getMachines();
   const list = document.getElementById('machineList');
   const empty = document.getElementById('machineEmpty');
@@ -801,6 +859,7 @@ let selectedMult = null;
 let selectedLitSlots = new Set();
 let recordSlotSelected = null;
 let gameHistory = [];
+let userMaxMachines = LIMIT_LOGIN;
 
 // ── Migrate old single-machine data if present ──
 (function migrateOldData() {
@@ -831,6 +890,10 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('userEmail').textContent = user.email;
         document.getElementById('userBar').classList.remove('hidden');
         await cloudPullAll();
+        try {
+          const uDoc = await fbDb.collection('users').doc(user.uid).get();
+          userMaxMachines = (uDoc.exists && uDoc.data().maxMachines) ? uDoc.data().maxMachines : LIMIT_LOGIN;
+        } catch(e) { userMaxMachines = LIMIT_LOGIN; }
         renderMachineList();
         showPanel('machine');
       } else {
@@ -1171,6 +1234,7 @@ async function logoutUser() {
     try { await fbAuth.signOut(); } catch(e) {}
   }
   cloudUid = null;
+  userMaxMachines = LIMIT_LOGIN;
   strategy = null;
   currentMachineId = null;
   gameHistory = [];
