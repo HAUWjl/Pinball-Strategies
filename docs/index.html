@@ -425,12 +425,22 @@
     <p style="font-size:0.85em;color:var(--muted);margin-bottom:8px;">点击球落入的槽位直接记录</p>
     <div class="slot-grid" id="quickRecordGrid"></div>
     <div id="deviationBox" class="deviation-box">
+      <div style="display:flex;justify-content:space-around;margin-bottom:10px;">
+        <div style="text-align:center;">
+          <div id="recordCount" style="font-size:1.5em;font-weight:800;color:var(--green);">0</div>
+          <div style="font-size:0.78em;color:var(--muted);">已记录落点</div>
+        </div>
+        <div style="text-align:center;">
+          <div id="accuracyValue" style="font-size:1.5em;font-weight:800;color:var(--muted);">0%</div>
+          <div style="font-size:0.78em;color:var(--muted);">计算准确度</div>
+        </div>
+      </div>
       <div class="deviation-value" id="deviationValue" style="color:var(--muted);">0.0%</div>
-      <div class="deviation-label">概率偏差度（总变差距离）</div>
+      <div class="deviation-label">概率偏差度</div>
       <div id="deviationTip" style="font-size:0.8em;margin-top:6px;color:var(--muted);">记录更多落点以观察偏差</div>
     </div>
     <div style="font-size:0.72em;color:var(--muted);margin-top:8px;line-height:1.5;">
-      偏差度衡量观测分布与均匀分布的差异：0% 为完全均匀，越高表示特定槽位概率偏差越大，可切换到策略模式利用偏差。
+      准确度：实际观测数据在概率计算中的权重占比。偏差度：观测分布与均匀分布的差异，越高表示槽位偏差越大。
     </div>
   </div>
 
@@ -1219,10 +1229,25 @@ function calculateDeviation() {
 function updateDeviation() {
   const el = document.getElementById('deviationValue');
   const tipEl = document.getElementById('deviationTip');
+  const countEl = document.getElementById('recordCount');
+  const accEl = document.getElementById('accuracyValue');
   if (!el || !tipEl) return;
+
+  const plays = strategy ? strategy.totalPlays : 0;
+  const prior = strategy ? strategy.priorWeight : 0;
+  const accuracy = (plays + prior) > 0 ? plays / (plays + prior) : 0;
   const tvd = calculateDeviation();
+
+  if (countEl) countEl.textContent = plays;
+  if (accEl) {
+    accEl.textContent = (accuracy * 100).toFixed(1) + '%';
+    if (accuracy < 0.3) accEl.style.color = 'var(--highlight)';
+    else if (accuracy < 0.6) accEl.style.color = 'var(--yellow)';
+    else accEl.style.color = 'var(--green)';
+  }
+
   el.textContent = (tvd * 100).toFixed(1) + '%';
-  if (!strategy || strategy.totalPlays === 0) {
+  if (plays === 0) {
     el.style.color = 'var(--muted)';
     tipEl.textContent = '记录更多落点以观察偏差';
     tipEl.style.color = 'var(--muted)';
