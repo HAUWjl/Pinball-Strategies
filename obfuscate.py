@@ -23,6 +23,12 @@ RENAME_MAP = {
     'setSyncStatus':      '_$r',
     'getMachinesLocal':   '_$s',
     'saveMachinesLocal':  '_$t',
+    # Debounce 内部实现
+    '_debounce':              '_$u',
+    '_cloudPushStateNow':     '_$v',
+    '_cloudPushHistoryNow':   '_$w',
+    '_debouncedPushState':    '_$x',
+    '_debouncedPushHistory':  '_$y',
     # PinballStrategy 仅内部调用的私有方法
     '_betForMarbles':     '_$f',
     '_betForCards':       '_$g',

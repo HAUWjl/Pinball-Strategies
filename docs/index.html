@@ -606,11 +606,14 @@ function updateQuotaDisplay() {
   if (proHint) proHint.classList.toggle('hidden', !loggedNotActivated);
 }
 
+let _redeemBusy = false;
 async function redeemCode() {
+  if (_redeemBusy) return;
   if (!fbReady || !cloudUid) { showToast('请先登录'); return; }
   const input = document.getElementById('activationCode');
   const code = input.value.trim();
   if (!code) { showToast('请输入卡密'); return; }
+  _redeemBusy = true;
   try {
     const codeRef = fbDb.collection('codes').doc(code);
     await fbDb.runTransaction(async tx => {
@@ -625,6 +628,8 @@ async function redeemCode() {
     updateQuotaDisplay();
   } catch(e) {
     showToast(e.message || '激活失败');
+  } finally {
+    _redeemBusy = false;
   }
 }
 
@@ -1298,7 +1303,9 @@ function switchAuthTab(mode) {
   document.getElementById('authError').textContent = '';
 }
 
+let _authBusy = false;
 async function submitAuth() {
+  if (_authBusy) return;
   if (!fbReady) { showToast('Firebase 未配置'); return; }
   const email = document.getElementById('authEmail').value.trim();
   const pass = document.getElementById('authPassword').value;
@@ -1310,6 +1317,7 @@ async function submitAuth() {
   const btn = document.getElementById('authSubmit');
   btn.disabled = true;
   btn.textContent = '处理中...';
+  _authBusy = true;
   try {
     if (authMode === 'register') {
       await fbAuth.createUserWithEmailAndPassword(email, pass);
@@ -1332,6 +1340,7 @@ async function submitAuth() {
     };
     errEl.textContent = msgs[e.code] || e.message;
   }
+  _authBusy = false;
   btn.disabled = false;
   btn.textContent = authMode === 'login' ? '登录' : '注册';
 }
