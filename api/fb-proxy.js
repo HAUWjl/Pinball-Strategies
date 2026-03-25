@@ -6,6 +6,19 @@ const BACKENDS = {
   firestore: 'https://firestore.googleapis.com',
 };
 
+// Disable Vercel's auto body parser so we can forward raw body as-is
+module.exports.config = { api: { bodyParser: false } };
+
+// Read raw body from request stream
+function getRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 module.exports = async function handler(req, res) {
   // CORS headers (always set)
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -37,34 +50,23 @@ module.exports = async function handler(req, res) {
   const targetUrl = `${backend}/${rest}${qs ? '?' + qs : ''}`;
 
   // Forward headers (keep content-type, authorization)
-  const fwdHeaders = { 'Content-Type': req.headers['content-type'] || 'application/json' };
+  const fwdHeaders = {};
+  if (req.headers['content-type']) fwdHeaders['Content-Type'] = req.headers['content-type'];
   if (req.headers['authorization']) fwdHeaders['Authorization'] = req.headers['authorization'];
 
   try {
-    // Serialize body based on content-type
-    let body = undefined;
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
-      const ct = (req.headers['content-type'] || '').toLowerCase();
-      if (typeof req.body === 'string') {
-        body = req.body;
-      } else if (ct.includes('x-www-form-urlencoded')) {
-        // Vercel parses form body into object — re-encode as form data
-        body = Object.entries(req.body)
-          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-          .join('&');
-      } else {
-        body = JSON.stringify(req.body);
-      }
-    }
+    // Read raw body and forward as-is (preserves form-encoded, JSON, etc.)
+    const rawBody = req.method !== 'GET' && req.method !== 'HEAD'
+      ? await getRawBody(req)
+      : undefined;
 
     const upstream = await fetch(targetUrl, {
       method: req.method,
       headers: fwdHeaders,
-      body,
+      body: rawBody && rawBody.length > 0 ? rawBody : undefined,
     });
 
     const data = await upstream.text();
-    // Forward content-type from upstream
     const ct = upstream.headers.get('content-type');
     if (ct) res.setHeader('Content-Type', ct);
     res.status(upstream.status).send(data);
