@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a2e">
 <link rel="manifest" href="manifest.json">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <title>弹珠机策略顾问</title>
 <style>
   :root {
@@ -270,14 +273,58 @@
     border-radius: 8px; background: var(--bg); color: var(--text); font-size: 1em;
   }
   .add-machine-row input:focus { outline: none; border-color: var(--green); }
+
+  /* Auth */
+  .auth-panel { max-width: 400px; margin: 0 auto; }
+  .auth-tabs { display: flex; margin-bottom: 16px; }
+  .auth-tab {
+    flex: 1; padding: 10px; text-align: center; cursor: pointer;
+    border-bottom: 2px solid #333; color: var(--muted); font-weight: 600;
+    background: none; border-top: none; border-left: none; border-right: none;
+    font-size: 1em; -webkit-tap-highlight-color: transparent; width: auto; margin: 0;
+  }
+  .auth-tab.active { border-bottom-color: var(--green); color: var(--green); }
+  .auth-input {
+    display: block; width: 100%; padding: 10px 12px; border: 1px solid #333;
+    border-radius: 8px; background: var(--bg); color: var(--text);
+    font-size: 1em; margin-bottom: 10px;
+  }
+  .auth-input:focus { outline: none; border-color: var(--green); }
+  .auth-error { color: var(--highlight); font-size: 0.85em; text-align: center; margin: 8px 0; min-height: 1.2em; }
+  .user-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.85em; padding: 6px 14px;
+    background: var(--card); border-radius: var(--radius); margin-bottom: 10px;
+  }
+  .user-bar .user-email { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  .sync-status { font-size: 0.8em; color: var(--yellow); margin-left: 8px; }
 </style>
 </head>
 <body>
 
 <h1>🎯 弹珠机策略顾问</h1>
 
+<!-- ====== Auth ====== -->
+<div id="authPanel" class="card auth-panel hidden">
+  <h2>🔐 账号</h2>
+  <div class="auth-tabs">
+    <button class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">登录</button>
+    <button class="auth-tab" id="tabRegister" onclick="switchAuthTab('register')">注册</button>
+  </div>
+  <input type="email" id="authEmail" class="auth-input" placeholder="邮箱地址" autocomplete="email">
+  <input type="password" id="authPassword" class="auth-input" placeholder="密码（至少6位）" autocomplete="current-password">
+  <div id="authError" class="auth-error"></div>
+  <button class="btn-primary" id="authSubmit" onclick="submitAuth()">登录</button>
+  <button class="btn-outline" style="margin-top:6px;" onclick="useOffline()">离线使用（不同步）</button>
+</div>
+
+<div id="userBar" class="user-bar hidden">
+  <span><span id="userEmail" class="user-email"></span><span id="syncStatus" class="sync-status"></span></span>
+  <button class="btn-small btn-outline" onclick="logoutUser()">退出</button>
+</div>
+
 <!-- ====== Step 0: 机器选择 ====== -->
-<div id="machinePanel" class="card">
+<div id="machinePanel" class="card hidden">
   <h2>🎰 选择机器</h2>
   <div id="machineList" class="machine-list"></div>
   <div id="machineEmpty" style="text-align:center;color:var(--muted);font-size:0.9em;padding:12px;">暂无机器，请添加</div>
@@ -419,6 +466,103 @@ const MIN_BET = 5;
 const MAX_BET = 99;
 const MULT_SLOTS = {2:4, 4:3, 6:2, 8:1, 10:1};
 
+// ═══════════════════════════════════════════════════════════════════
+// Firebase Configuration
+// 请将下面的配置替换为你自己的 Firebase 项目配置
+// Firebase Console → 项目设置 → 你的应用 → Firebase SDK snippet
+// ═══════════════════════════════════════════════════════════════════
+const FIREBASE_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+
+let fbReady = false, fbAuth = null, fbDb = null, cloudUid = null;
+try {
+  if (FIREBASE_CONFIG.apiKey && typeof firebase !== 'undefined') {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    fbAuth = firebase.auth();
+    fbDb = firebase.firestore();
+    fbDb.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+    fbReady = true;
+  }
+} catch(e) { console.warn('Firebase init skipped:', e); }
+
+// ── Cloud sync helpers ──
+function cloudDocRef(machineId) {
+  if (!fbDb || !cloudUid) return null;
+  return fbDb.collection('users').doc(cloudUid)
+    .collection('machines').doc(encodeURIComponent(machineId));
+}
+function cloudPushState(machineId, stateData) {
+  const ref = cloudDocRef(machineId);
+  if (ref) ref.set({ state: stateData }, { merge: true }).catch(() => {});
+}
+function cloudPushHistory(machineId, historyData) {
+  const ref = cloudDocRef(machineId);
+  if (ref) ref.set({ history: historyData }, { merge: true }).catch(() => {});
+}
+function cloudPushMachineList(machines) {
+  if (!fbDb || !cloudUid) return;
+  fbDb.collection('users').doc(cloudUid)
+    .set({ machines }, { merge: true }).catch(() => {});
+}
+function cloudDeleteMachine(machineId) {
+  const ref = cloudDocRef(machineId);
+  if (ref) ref.delete().catch(() => {});
+}
+async function cloudPullAll() {
+  if (!fbDb || !cloudUid) return false;
+  try {
+    setSyncStatus('同步中...');
+    const userDoc = await fbDb.collection('users').doc(cloudUid).get();
+    if (userDoc.exists && userDoc.data().machines) {
+      const machines = userDoc.data().machines;
+      saveMachinesLocal(machines);
+      for (const m of machines) {
+        const dataDoc = await cloudDocRef(m.id).get();
+        if (dataDoc.exists) {
+          const d = dataDoc.data();
+          if (d.state) localStorage.setItem('pb_state_' + m.id, JSON.stringify(d.state));
+          if (d.history) localStorage.setItem('pb_history_' + m.id, JSON.stringify(d.history));
+        }
+      }
+    }
+    setSyncStatus('已同步');
+    setTimeout(() => setSyncStatus(''), 3000);
+    return true;
+  } catch(e) {
+    console.warn('Cloud pull failed:', e);
+    setSyncStatus('同步失败');
+    return false;
+  }
+}
+async function cloudPushAll() {
+  if (!fbDb || !cloudUid) return;
+  try {
+    const machines = getMachinesLocal();
+    cloudPushMachineList(machines);
+    for (const m of machines) {
+      const stateRaw = localStorage.getItem('pb_state_' + m.id);
+      const histRaw = localStorage.getItem('pb_history_' + m.id);
+      const ref = cloudDocRef(m.id);
+      if (ref) {
+        const data = {};
+        if (stateRaw) data.state = JSON.parse(stateRaw);
+        if (histRaw) data.history = JSON.parse(histRaw);
+        if (Object.keys(data).length) await ref.set(data, { merge: true });
+      }
+    }
+  } catch(e) { console.warn('Cloud push failed:', e); }
+}
+function setSyncStatus(msg) {
+  const el = document.getElementById('syncStatus');
+  if (el) el.textContent = msg ? ' · ' + msg : '';
+}
+
 class PinballStrategy {
   constructor(T, J, priority, priorWeight) {
     this.T = T;
@@ -500,17 +644,17 @@ class PinballStrategy {
     return Math.max(MIN_BET, Math.min(MAX_BET, nOptimal));
   }
 
-  // ── Persistence via localStorage (per machine) ──
+  // ── Persistence via localStorage + cloud ──
   _save() {
     if (!currentMachineId) return;
-    try {
-      localStorage.setItem('pb_state_' + currentMachineId, JSON.stringify({
-        T: this.T, J: this.J, priority: this.priority,
-        priorWeight: this.priorWeight,
-        landingCounts: this.landingCounts,
-        totalPlays: this.totalPlays,
-      }));
-    } catch(e) {}
+    const data = {
+      T: this.T, J: this.J, priority: this.priority,
+      priorWeight: this.priorWeight,
+      landingCounts: this.landingCounts,
+      totalPlays: this.totalPlays,
+    };
+    try { localStorage.setItem('pb_state_' + currentMachineId, JSON.stringify(data)); } catch(e) {}
+    cloudPushState(currentMachineId, data);
   }
 
   static load(machineId) {
@@ -529,15 +673,20 @@ class PinballStrategy {
 // ═══════════════════════════════════════════════════════════════════
 // Machine Management
 // ═══════════════════════════════════════════════════════════════════
-function getMachines() {
+function getMachinesLocal() {
   try {
     const raw = localStorage.getItem('pb_machines');
     return raw ? JSON.parse(raw) : [];
   } catch(e) { return []; }
 }
+function getMachines() { return getMachinesLocal(); }
 
-function saveMachines(machines) {
+function saveMachinesLocal(machines) {
   try { localStorage.setItem('pb_machines', JSON.stringify(machines)); } catch(e) {}
+}
+function saveMachines(machines) {
+  saveMachinesLocal(machines);
+  cloudPushMachineList(machines);
 }
 
 function addMachine() {
@@ -562,6 +711,7 @@ function deleteMachine(id) {
     localStorage.removeItem('pb_state_' + id);
     localStorage.removeItem('pb_history_' + id);
   } catch(e) {}
+  cloudDeleteMachine(id);
   renderMachineList();
   showToast('已删除: ' + id);
 }
@@ -628,10 +778,12 @@ function renderMachineList() {
 }
 
 function showPanel(name) {
+  document.getElementById('authPanel').classList.add('hidden');
   document.getElementById('machinePanel').classList.add('hidden');
   document.getElementById('setupPanel').classList.add('hidden');
   document.getElementById('gamePanel').classList.add('hidden');
   document.getElementById('resultPanel').classList.add('hidden');
+  if (name === 'auth') document.getElementById('authPanel').classList.remove('hidden');
   if (name === 'machine') document.getElementById('machinePanel').classList.remove('hidden');
   if (name === 'setup') document.getElementById('setupPanel').classList.remove('hidden');
   if (name === 'game') {
@@ -654,11 +806,11 @@ let gameHistory = [];
   try {
     const oldState = localStorage.getItem('pb_state');
     if (oldState) {
-      const machines = getMachines();
+      const machines = getMachinesLocal();
       const migId = '默认机器';
       if (!machines.some(m => m.id === migId)) {
         machines.push({ id: migId, createdAt: new Date().toLocaleString() });
-        saveMachines(machines);
+        saveMachinesLocal(machines);
       }
       localStorage.setItem('pb_state_' + migId, oldState);
       const oldHist = localStorage.getItem('pb_history');
@@ -669,10 +821,28 @@ let gameHistory = [];
   } catch(e) {}
 })();
 
-// ── Init: always show machine list ──
+// ── Init: check Firebase auth or go offline ──
 document.addEventListener('DOMContentLoaded', () => {
-  renderMachineList();
-  showPanel('machine');
+  if (fbReady) {
+    fbAuth.onAuthStateChanged(async user => {
+      if (user) {
+        cloudUid = user.uid;
+        document.getElementById('userEmail').textContent = user.email;
+        document.getElementById('userBar').classList.remove('hidden');
+        await cloudPullAll();
+        renderMachineList();
+        showPanel('machine');
+      } else {
+        cloudUid = null;
+        document.getElementById('userBar').classList.add('hidden');
+        showPanel('auth');
+      }
+    });
+  } else {
+    // No Firebase → offline mode directly
+    renderMachineList();
+    showPanel('machine');
+  }
 });
 
 function initMachine() {
@@ -688,6 +858,7 @@ function initMachine() {
   strategy._save();
   gameHistory = [];
   try { localStorage.setItem('pb_history_' + currentMachineId, '[]'); } catch(e) {}
+  cloudPushHistory(currentMachineId, []);
 
   showPanel('game');
   document.getElementById('configSummary').textContent =
@@ -855,6 +1026,7 @@ function addHistory(mult, slot, win, bet) {
   gameHistory.push({mult, slot: slot+1, win, bet, time: new Date().toLocaleTimeString()});
   if (currentMachineId) {
     try { localStorage.setItem('pb_history_' + currentMachineId, JSON.stringify(gameHistory)); } catch(e) {}
+    cloudPushHistory(currentMachineId, gameHistory);
   }
   renderHistory();
 }
@@ -933,6 +1105,81 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// ═════════════════════════════════════════════════════════════════
+// Auth UI
+// ═════════════════════════════════════════════════════════════════
+let authMode = 'login';
+
+function switchAuthTab(mode) {
+  authMode = mode;
+  document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+  document.getElementById('tabRegister').classList.toggle('active', mode === 'register');
+  document.getElementById('authSubmit').textContent = mode === 'login' ? '登录' : '注册';
+  document.getElementById('authError').textContent = '';
+}
+
+async function submitAuth() {
+  if (!fbReady) { showToast('Firebase 未配置'); return; }
+  const email = document.getElementById('authEmail').value.trim();
+  const pass = document.getElementById('authPassword').value;
+  const errEl = document.getElementById('authError');
+  errEl.textContent = '';
+  if (!email || !pass) { errEl.textContent = '请填写邮箱和密码'; return; }
+  if (pass.length < 6) { errEl.textContent = '密码至少6位'; return; }
+
+  const btn = document.getElementById('authSubmit');
+  btn.disabled = true;
+  btn.textContent = '处理中...';
+  try {
+    if (authMode === 'register') {
+      await fbAuth.createUserWithEmailAndPassword(email, pass);
+      // After registration, push any existing local data to cloud
+      cloudUid = fbAuth.currentUser.uid;
+      await cloudPushAll();
+    } else {
+      await fbAuth.signInWithEmailAndPassword(email, pass);
+    }
+    // onAuthStateChanged will handle the rest
+  } catch(e) {
+    const msgs = {
+      'auth/email-already-in-use': '该邮箱已注册',
+      'auth/invalid-email': '邮箱格式不正确',
+      'auth/weak-password': '密码太简单',
+      'auth/user-not-found': '用户不存在',
+      'auth/wrong-password': '密码错误',
+      'auth/invalid-credential': '邮箱或密码错误',
+      'auth/too-many-requests': '尝试次数过多，请稍后再试',
+    };
+    errEl.textContent = msgs[e.code] || e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = authMode === 'login' ? '登录' : '注册';
+}
+
+function useOffline() {
+  cloudUid = null;
+  document.getElementById('userBar').classList.add('hidden');
+  renderMachineList();
+  showPanel('machine');
+}
+
+async function logoutUser() {
+  if (fbReady) {
+    try { await fbAuth.signOut(); } catch(e) {}
+  }
+  cloudUid = null;
+  strategy = null;
+  currentMachineId = null;
+  gameHistory = [];
+  document.getElementById('userBar').classList.add('hidden');
+  if (fbReady) {
+    showPanel('auth');
+  } else {
+    renderMachineList();
+    showPanel('machine');
+  }
 }
 
 // ── Register Service Worker ──
