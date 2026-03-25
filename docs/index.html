@@ -445,6 +445,7 @@
     <h2>📝 快速记录落点</h2>
     <p style="font-size:0.85em;color:var(--muted);margin-bottom:8px;">点击球落入的槽位直接记录 <button class="view-toggle-btn" onclick="toggleSlotView('quickRecordGrid',this)">↔ 横排</button></p>
     <div class="slot-grid" id="quickRecordGrid"></div>
+    <button id="undoBtnRecord" class="btn-small btn-outline" style="color:var(--yellow);border-color:var(--yellow);display:none;margin-bottom:8px;" onclick="undoLastRecord()">↩ 撤回上一次记录</button>
     <div id="deviationBox" class="deviation-box">
       <div style="display:flex;justify-content:space-around;margin-bottom:10px;">
         <div style="text-align:center;">
@@ -506,6 +507,7 @@
       <div style="display:flex;gap:8px;">
         <button class="btn-small btn-primary" onclick="recordSlot()">记录落点</button>
         <button class="btn-small btn-outline" onclick="skipRecord()">跳过</button>
+        <button class="btn-small btn-outline" id="undoBtnStrategy" style="color:var(--yellow);border-color:var(--yellow);display:none;" onclick="undoLastRecord()">↩ 撤回</button>
       </div>
     </div>
   </div>
@@ -956,6 +958,7 @@ let selectedLitSlots = new Set();
 let recordSlotSelected = null;
 let gameHistory = [];
 let currentGameMode = 'strategy';
+let lastRecordInfo = null;
 let userMaxMachines = LIMIT_LOGIN;
 
 // ── Migrate old single-machine data if present ──
@@ -1176,6 +1179,8 @@ function recordSlot() {
   if (isWin) strategy.totalMarblesOut += mult * bet;
   strategy._save();
   addHistory(mult, recordSlotSelected, isWin, bet);
+  lastRecordInfo = { slot: recordSlotSelected, bet, mult, isWin, marblesOut: isWin ? mult * bet : 0 };
+  updateUndoButtons();
 
   showToast(`✓ 已记录槽位 ${recordSlotSelected+1}（共 ${strategy.totalPlays} 局）`);
   refreshProbs();
@@ -1257,7 +1262,48 @@ function quickRecord(slot, btn) {
   btn.classList.remove('just-recorded');
   void btn.offsetWidth;
   btn.classList.add('just-recorded');
+  lastRecordInfo = { slot, bet: 0, mult: 0, isWin: false, marblesOut: 0, mode: 'record' };
+  updateUndoButtons();
   showToast('\u2713 槽位 ' + (slot + 1) + '（共 ' + strategy.totalPlays + ' 局）');
+}
+
+function undoLastRecord() {
+  if (!strategy || !lastRecordInfo) { showToast('没有可撤回的记录'); return; }
+  const r = lastRecordInfo;
+  // Reverse landing count
+  if (r.slot >= 0 && r.slot < NUM_SLOTS && strategy.landingCounts[r.slot] > 0) {
+    strategy.landingCounts[r.slot]--;
+    strategy.totalPlays--;
+  }
+  // Reverse marble stats (strategy mode only)
+  if (r.bet > 0) {
+    strategy.totalMarblesIn -= r.bet;
+    strategy.totalMarblesOut -= r.marblesOut;
+  }
+  strategy._save();
+  // Remove last history entry
+  if (gameHistory.length > 0) {
+    gameHistory.pop();
+    if (currentMachineId) {
+      try { localStorage.setItem('pb_history_' + currentMachineId, JSON.stringify(gameHistory)); } catch(e) {}
+      cloudPushHistory(currentMachineId, gameHistory);
+    }
+  }
+  lastRecordInfo = null;
+  updateUndoButtons();
+  renderHistory();
+  refreshProbs();
+  refreshMarbleStats();
+  if (currentGameMode === 'record') updateDeviation();
+  showToast('↩ 已撤回槽位 ' + (r.slot + 1) + ' 的记录');
+}
+
+function updateUndoButtons() {
+  const show = !!lastRecordInfo;
+  const s = document.getElementById('undoBtnStrategy');
+  const r = document.getElementById('undoBtnRecord');
+  if (s) s.style.display = show ? '' : 'none';
+  if (r) r.style.display = show ? '' : 'none';
 }
 
 function calculateDeviation() {
