@@ -7,9 +7,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a2e">
 <link rel="manifest" href="manifest.json">
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.0/firebase-app-compat.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.0/firebase-auth-compat.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@10.12.0/firebase-firestore-compat.min.js"></script>
 <title>弹珠机策略顾问</title>
 <style>
   :root {
@@ -350,6 +350,7 @@
   <input type="email" id="authEmail" class="auth-input" placeholder="邮箱地址" autocomplete="email">
   <input type="password" id="authPassword" class="auth-input" placeholder="密码（至少6位）" autocomplete="current-password">
   <div id="authError" class="auth-error"></div>
+  <div id="authNetworkHint" class="hidden" style="margin:8px 0;padding:10px 12px;background:rgba(233,69,96,0.1);border:1px solid rgba(233,69,96,0.3);border-radius:8px;font-size:0.82em;color:var(--muted);line-height:1.6;">⚠️ <b style="color:var(--highlight);">网络连接失败</b><br>Firebase 服务需要访问 Google 服务器。如果您在中国大陆，可能需要：<br>① 使用 VPN / 科学上网工具<br>② 或点击下方「离线使用」</div>
   <button class="btn-primary" id="authSubmit" onclick="submitAuth()">登录</button>
   <button class="btn-outline" style="margin-top:6px;" onclick="useOffline()">离线使用（不同步）</button>
 </div>
@@ -1319,15 +1320,21 @@ async function submitAuth() {
   btn.textContent = '处理中...';
   _authBusy = true;
   try {
+    // 添加超时控制，15秒无响应视为网络问题
+    const authPromise = authMode === 'register'
+      ? fbAuth.createUserWithEmailAndPassword(email, pass)
+      : fbAuth.signInWithEmailAndPassword(email, pass);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject({ code: 'auth/network-request-failed', message: '连接超时' }), 15000)
+    );
+    await Promise.race([authPromise, timeoutPromise]);
     if (authMode === 'register') {
-      await fbAuth.createUserWithEmailAndPassword(email, pass);
       // After registration, push any existing local data to cloud
       cloudUid = fbAuth.currentUser.uid;
       await cloudPushAll();
-    } else {
-      await fbAuth.signInWithEmailAndPassword(email, pass);
     }
     // onAuthStateChanged will handle the rest
+    document.getElementById('authNetworkHint').classList.add('hidden');
   } catch(e) {
     const msgs = {
       'auth/email-already-in-use': '该邮箱已注册',
@@ -1337,8 +1344,12 @@ async function submitAuth() {
       'auth/wrong-password': '密码错误',
       'auth/invalid-credential': '邮箱或密码错误',
       'auth/too-many-requests': '尝试次数过多，请稍后再试',
+      'auth/network-request-failed': '网络连接失败，请检查网络或使用 VPN',
     };
     errEl.textContent = msgs[e.code] || e.message;
+    if (e.code === 'auth/network-request-failed') {
+      document.getElementById('authNetworkHint').classList.remove('hidden');
+    }
   }
   _authBusy = false;
   btn.disabled = false;
