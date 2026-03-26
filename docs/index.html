@@ -658,6 +658,12 @@
     <div style="margin-top:14px;">
       <label>记录落点（可选，提高后续精度）<button class="view-toggle-btn" onclick="toggleSlotView('recordGrid',this)">↔ 横排</button></label>
       <div class="slot-grid" id="recordGrid"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <label style="margin:0;white-space:nowrap;font-size:0.85em;">实际下注:</label>
+        <input type="number" id="inputActualBet" placeholder="" min="5" max="99" inputmode="numeric"
+          style="width:70px;padding:4px 8px;font-size:0.9em;">
+        <span style="font-size:0.78em;color:var(--muted);">留空则使用策略建议值</span>
+      </div>
       <div style="display:flex;gap:8px;">
         <button class="btn-small btn-primary" onclick="recordSlot()">记录落点</button>
         <button class="btn-small btn-outline" onclick="skipRecord()">跳过</button>
@@ -674,6 +680,67 @@
     <div id="probContent">
       <div id="probBars"></div>
       <div id="probInfo" style="text-align:center;font-size:0.85em;color:var(--muted);margin-top:6px;"></div>
+    </div>
+  </div>
+
+  <!-- 机器分析报告 -->
+  <div id="analysisCard" class="card hidden">
+    <div class="section-toggle" onclick="toggleSection(this, 'analysisContent')">
+      <h2 style="margin:0;">🔍 机器分析报告</h2>
+    </div>
+    <div id="analysisContent">
+      <div id="analysisConfBar" style="margin-bottom:12px;padding:8px 12px;border-radius:var(--radius);font-size:0.85em;"></div>
+
+      <!-- 倍率分布检测 -->
+      <div id="analysisMultBlock" style="margin-bottom:14px;">
+        <div style="font-weight:700;font-size:0.9em;margin-bottom:6px;">📊 倍率出现概率检测</div>
+        <div id="analysisMultBars"></div>
+        <div id="analysisMultVerdict" style="font-size:0.82em;margin-top:6px;padding:6px 10px;border-radius:6px;"></div>
+      </div>
+
+      <!-- 综合EV分析 -->
+      <div id="analysisEvBlock" style="margin-bottom:14px;">
+        <div style="font-weight:700;font-size:0.9em;margin-bottom:6px;">💰 综合期望值分析</div>
+        <div class="result-box" style="margin:0;">
+          <div class="result-row">
+            <span class="result-label">理论加权EV</span>
+            <span class="result-value" id="analysisEvTheory">0.8145</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">观测加权EV</span>
+            <span class="result-value" id="analysisEvObserved">—</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">实际回报率</span>
+            <span class="result-value" id="analysisEvActual">—</span>
+          </div>
+        </div>
+        <div id="analysisEvVerdict" style="font-size:0.82em;margin-top:6px;padding:6px 10px;border-radius:6px;"></div>
+      </div>
+
+      <!-- V2策略收益预估 -->
+      <div id="analysisBenefitBlock" style="margin-bottom:6px;">
+        <div style="font-weight:700;font-size:0.9em;margin-bottom:6px;">🚀 V2策略收益预估</div>
+        <div class="result-box" style="margin:0;">
+          <div class="result-row">
+            <span class="result-label">落点偏差度(TVD)</span>
+            <span class="result-value" id="analysisTvd">—</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">偏差等级</span>
+            <span class="result-value" id="analysisSkewLevel">—</span>
+          </div>
+          <div class="result-row">
+            <span class="result-label">预计积分卡提升</span>
+            <span class="result-value" id="analysisBenefitRange">—</span>
+          </div>
+        </div>
+        <div id="analysisBenefitVerdict" style="font-size:0.82em;margin-top:6px;padding:6px 10px;border-radius:6px;"></div>
+      </div>
+
+      <div style="font-size:0.72em;color:var(--muted);margin-top:10px;line-height:1.5;">
+        ⚠️ 分析基于已记录的数据，数据越多结果越准确。倍率分析需≥30局含倍率记录，落点分析需≥50局。
+      </div>
     </div>
   </div>
 
@@ -1224,6 +1291,8 @@ function getRecommendation() {
 
   recordSlotSelected = null;
   document.querySelectorAll('#recordGrid .slot-btn').forEach(b => b.classList.remove('selected'));
+  const actualBetInput = document.getElementById('inputActualBet');
+  if (actualBetInput) { actualBetInput.value = ''; actualBetInput.placeholder = rec.optimalBet; }
   document.getElementById('resultPanel').scrollIntoView({behavior:'smooth', block:'start'});
 }
 
@@ -1233,7 +1302,10 @@ function recordSlot() {
   strategy.recordLanding(recordSlotSelected);
 
   const isWin = lastRec && lastRec.litSlots.includes(recordSlotSelected);
-  const bet = lastRec ? lastRec.optimalBet : MIN_BET;
+  const defaultBet = lastRec ? lastRec.optimalBet : MIN_BET;
+  const actualBetInput = document.getElementById('inputActualBet');
+  const rawVal = actualBetInput ? parseInt(actualBetInput.value) : NaN;
+  const bet = (rawVal >= MIN_BET && rawVal <= MAX_BET) ? rawVal : defaultBet;
   const mult = lastRec ? lastRec.multiplier : selectedMult;
   strategy.totalMarblesIn += bet;
   if (isWin) strategy.totalMarblesOut += mult * bet;
@@ -1323,6 +1395,7 @@ function switchGameMode(mode) {
     document.getElementById('quickRecordPanel').classList.remove('hidden');
     updateDeviation();
     updateMultStats();
+    updateAnalysisPanel();
   }
 }
 
@@ -1555,6 +1628,238 @@ function refreshProbs() {
   document.getElementById('probInfo').textContent =
     strategy.totalPlays > 0 ? `已统计 ${strategy.totalPlays} 局` : '尚无历史数据，使用均匀分布';
   updateDeviation();
+  updateAnalysisPanel();
+}
+
+// ── Machine Analysis (Manipulation Detection) ──
+const STANDARD_MULT_PROBS = {2: 0.420, 4: 0.288, 6: 0.127, 8: 0.108, 10: 0.057};
+const STANDARD_WEIGHTED_EV = 0.8145;
+
+function getMultiplierCounts() {
+  const counts = {};
+  let total = 0;
+  for (const h of gameHistory) {
+    const m = h.mult || h.recordMult;
+    if (m && m > 0) { counts[m] = (counts[m] || 0) + 1; total++; }
+  }
+  return { counts, total };
+}
+
+function calcObservedWeightedEv(multCounts, multTotal) {
+  let ev = 0;
+  for (const m of [2, 4, 6, 8, 10]) {
+    const freq = multTotal > 0 ? (multCounts[m] || 0) / multTotal : STANDARD_MULT_PROBS[m];
+    const nLit = MULT_SLOTS[m];
+    ev += freq * m * nLit / NUM_SLOTS;
+  }
+  return ev;
+}
+
+function getMultDeviation(multCounts, multTotal) {
+  let maxDev = 0;
+  let sumAbsDev = 0;
+  for (const m of [2, 4, 6, 8, 10]) {
+    const observed = multTotal > 0 ? (multCounts[m] || 0) / multTotal : 0;
+    const expected = STANDARD_MULT_PROBS[m];
+    const dev = Math.abs(observed - expected);
+    sumAbsDev += dev;
+    if (dev > maxDev) maxDev = dev;
+  }
+  return { maxDev, sumAbsDev };
+}
+
+function estimateV2Benefit(tvd) {
+  // Based on paper simulation data: TVD → approximate V2 improvement range
+  // J=10, cards priority, V2(ct=5) vs original strategy
+  if (tvd < 0.03) return { level: '接近均匀', min: 47, max: 134, color: 'var(--muted)' };
+  if (tvd < 0.08) return { level: '轻微偏斜', min: 134, max: 379, color: 'var(--green)' };
+  if (tvd < 0.15) return { level: '中等偏斜', min: 379, max: 1013, color: 'var(--yellow)' };
+  return { level: '严重偏斜', min: 1013, max: 1989, color: 'var(--highlight)' };
+}
+
+function updateAnalysisPanel() {
+  const card = document.getElementById('analysisCard');
+  if (!card || !strategy) return;
+
+  const plays = strategy.totalPlays;
+  const conf = strategy.confidenceThreshold > 0
+    ? strategy.totalPlays / (strategy.totalPlays + strategy.confidenceThreshold)
+    : plays / (plays + strategy.priorWeight);  // use priorWeight as pseudo-confidence
+  const { counts: multCounts, total: multTotal } = getMultiplierCounts();
+
+  // Show panel only when we have meaningful data
+  const hasMultData = multTotal >= 30;
+  const hasLandingData = plays >= 50;
+  if (!hasMultData && !hasLandingData) {
+    card.classList.add('hidden');
+    return;
+  }
+  card.classList.remove('hidden');
+
+  // ── Confidence bar ──
+  const confBar = document.getElementById('analysisConfBar');
+  const confPct = Math.min(conf * 100, 100);
+  let confColor, confText;
+  if (confPct < 50) {
+    confColor = 'var(--highlight)'; confText = '数据较少，分析结果仅供参考';
+  } else if (confPct < 80) {
+    confColor = 'var(--yellow)'; confText = '数据量中等，分析结果有一定参考价值';
+  } else {
+    confColor = 'var(--green)'; confText = '数据充足，分析结果可信度较高';
+  }
+  confBar.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
+    <span style="color:${confColor};font-weight:700;">置信度 ${confPct.toFixed(0)}%</span>
+    <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;">
+      <div style="height:100%;width:${confPct}%;background:${confColor};border-radius:3px;transition:width .3s;"></div>
+    </div>
+  </div>
+  <div style="margin-top:4px;color:var(--muted);font-size:0.82em;">${confText}（落点${plays}局 · 倍率${multTotal}条）</div>`;
+
+  // ── Multiplier distribution analysis ──
+  const multBlock = document.getElementById('analysisMultBlock');
+  const multBars = document.getElementById('analysisMultBars');
+  const multVerdict = document.getElementById('analysisMultVerdict');
+  if (hasMultData) {
+    multBlock.style.display = '';
+    let html = '';
+    for (const m of [2, 4, 6, 8, 10]) {
+      const obsCount = multCounts[m] || 0;
+      const obsPct = obsCount / multTotal;
+      const stdPct = STANDARD_MULT_PROBS[m];
+      const diff = obsPct - stdPct;
+      const diffPct = (diff * 100).toFixed(1);
+      const barColor = m <= 4 ? 'var(--green)' : m <= 6 ? 'var(--yellow)' : 'var(--highlight)';
+      const devColor = Math.abs(diff) > 0.08 ? 'var(--highlight)' : Math.abs(diff) > 0.04 ? 'var(--yellow)' : 'var(--muted)';
+      const devIcon = Math.abs(diff) > 0.08 ? '⚠️' : Math.abs(diff) > 0.04 ? '⚡' : '✓';
+      html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:0.82em;">
+        <span style="width:28px;text-align:right;font-weight:700;">${m}x</span>
+        <div style="flex:1;height:14px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;position:relative;">
+          <div style="height:100%;width:${(obsPct*100).toFixed(0)}%;background:${barColor};border-radius:3px;opacity:0.8;"></div>
+          <div style="position:absolute;left:${(stdPct*100).toFixed(0)}%;top:0;height:100%;width:2px;background:rgba(255,255,255,0.5);"></div>
+        </div>
+        <span style="width:72px;text-align:right;">${(obsPct*100).toFixed(1)}%<span style="color:var(--muted);font-size:0.8em;"> (${(stdPct*100).toFixed(0)}%)</span></span>
+        <span style="width:52px;text-align:right;color:${devColor};">${devIcon}${diff>=0?'+':''}${diffPct}%</span>
+      </div>`;
+    }
+    multBars.innerHTML = html;
+
+    const { maxDev, sumAbsDev } = getMultDeviation(multCounts, multTotal);
+    if (sumAbsDev > 0.25) {
+      multVerdict.innerHTML = '⚠️ <b style="color:var(--highlight);">倍率分布严重异常</b>，极大概率被商家操控！建议更换机器。';
+      multVerdict.style.background = 'rgba(255,107,107,0.12)';
+    } else if (sumAbsDev > 0.12) {
+      multVerdict.innerHTML = '⚡ <b style="color:var(--yellow);">倍率分布有明显偏离</b>，可能存在操控，建议继续观察或谨慎游玩。';
+      multVerdict.style.background = 'rgba(255,217,61,0.1)';
+    } else {
+      multVerdict.innerHTML = '✓ <b style="color:var(--green);">倍率分布正常</b>，与标准概率基本一致。';
+      multVerdict.style.background = 'rgba(78,204,163,0.08)';
+    }
+  } else {
+    multBlock.style.display = 'none';
+  }
+
+  // ── EV analysis ──
+  const evObsEl = document.getElementById('analysisEvObserved');
+  const evActEl = document.getElementById('analysisEvActual');
+  const evVerdict = document.getElementById('analysisEvVerdict');
+
+  if (hasMultData) {
+    const obsEv = calcObservedWeightedEv(multCounts, multTotal);
+    evObsEl.textContent = obsEv.toFixed(4);
+    evObsEl.style.color = obsEv < STANDARD_WEIGHTED_EV * 0.92 ? 'var(--highlight)' :
+      obsEv < STANDARD_WEIGHTED_EV * 0.98 ? 'var(--yellow)' : 'var(--green)';
+  } else {
+    evObsEl.textContent = '—（需≥30局倍率记录）';
+    evObsEl.style.color = 'var(--muted)';
+  }
+
+  if (strategy.totalMarblesIn > 0) {
+    const actualRoi = strategy.totalMarblesOut / strategy.totalMarblesIn;
+    evActEl.textContent = actualRoi.toFixed(4) + ` (投${strategy.totalMarblesIn} 回${strategy.totalMarblesOut})`;
+    evActEl.style.color = actualRoi >= 1 ? 'var(--green)' : actualRoi >= 0.7 ? 'var(--yellow)' : 'var(--highlight)';
+  } else {
+    evActEl.textContent = '—（需在策略模式记录投珠数据）';
+    evActEl.style.color = 'var(--muted)';
+  }
+
+  // EV verdict
+  const hasEvData = hasMultData || strategy.totalMarblesIn > 100;
+  if (hasEvData) {
+    let evSignal = null;
+    if (hasMultData) {
+      const obsEv = calcObservedWeightedEv(multCounts, multTotal);
+      evSignal = obsEv;
+    }
+    if (strategy.totalMarblesIn > 100) {
+      const actualRoi = strategy.totalMarblesOut / strategy.totalMarblesIn;
+      evSignal = evSignal != null ? (evSignal + actualRoi) / 2 : actualRoi;
+    }
+    if (evSignal != null) {
+      const evDiff = ((evSignal - STANDARD_WEIGHTED_EV) / STANDARD_WEIGHTED_EV * 100).toFixed(1);
+      if (evSignal < 0.65) {
+        evVerdict.innerHTML = `⚠️ <b style="color:var(--highlight);">EV严重偏低</b> (偏差${evDiff}%)，该机器大概率被操控，强烈建议更换！`;
+        evVerdict.style.background = 'rgba(255,107,107,0.12)';
+      } else if (evSignal < 0.75) {
+        evVerdict.innerHTML = `⚡ <b style="color:var(--yellow);">EV低于正常</b> (偏差${evDiff}%)，机器可能存在不利调整。`;
+        evVerdict.style.background = 'rgba(255,217,61,0.1)';
+      } else if (evSignal > 0.9) {
+        evVerdict.innerHTML = `🎯 <b style="color:var(--green);">EV高于预期</b> (偏差+${Math.abs(evDiff)}%)，这台机器条件不错！`;
+        evVerdict.style.background = 'rgba(78,204,163,0.08)';
+      } else {
+        evVerdict.innerHTML = `✓ <b style="color:var(--green);">EV正常</b> (偏差${evDiff}%)，与标准水平基本一致。`;
+        evVerdict.style.background = 'rgba(78,204,163,0.08)';
+      }
+    } else {
+      evVerdict.innerHTML = '';
+      evVerdict.style.background = 'transparent';
+    }
+  } else {
+    evVerdict.innerHTML = '';
+    evVerdict.style.background = 'transparent';
+  }
+
+  // ── V2 Strategy Benefit Estimation ──
+  const tvdEl = document.getElementById('analysisTvd');
+  const skewEl = document.getElementById('analysisSkewLevel');
+  const benefitEl = document.getElementById('analysisBenefitRange');
+  const benefitVerdict = document.getElementById('analysisBenefitVerdict');
+
+  if (hasLandingData) {
+    const tvd = calculateDeviation();
+    const benefit = estimateV2Benefit(tvd);
+    tvdEl.textContent = (tvd * 100).toFixed(1) + '%';
+    tvdEl.style.color = benefit.color;
+    skewEl.textContent = benefit.level;
+    skewEl.style.color = benefit.color;
+    benefitEl.innerHTML = `<span style="color:var(--green);font-weight:700;">+${benefit.min}% ~ +${benefit.max}%</span>`;
+
+    if (tvd >= 0.15) {
+      benefitVerdict.innerHTML = '🔥 <b style="color:var(--highlight);">落点严重偏斜！</b>V2策略可极大幅度提升积分卡产出，甚至有可能实现<b>净盈利</b>（珠子越打越多）。';
+      benefitVerdict.style.background = 'rgba(255,107,107,0.12)';
+    } else if (tvd >= 0.08) {
+      benefitVerdict.innerHTML = '⚡ <b style="color:var(--yellow);">中等偏斜</b>，V2策略可显著提升积分卡效率。建议启用自适应投注(ct=5)利用偏差。';
+      benefitVerdict.style.background = 'rgba(255,217,61,0.1)';
+    } else if (tvd >= 0.03) {
+      benefitVerdict.innerHTML = '📈 <b style="color:var(--green);">轻微偏斜</b>，V2策略可带来可观提升。自适应投注能有效利用这些细微偏差。';
+      benefitVerdict.style.background = 'rgba(78,204,163,0.08)';
+    } else {
+      benefitVerdict.innerHTML = '✓ 落点接近均匀分布，V2策略仍可通过避免floor浪费提升效率，但提升幅度有限。';
+      benefitVerdict.style.background = 'rgba(255,255,255,0.03)';
+    }
+
+    // If adaptive is not enabled, add hint
+    if (strategy.confidenceThreshold <= 0 && tvd >= 0.05) {
+      benefitVerdict.innerHTML += '<br><span style="color:var(--yellow);font-size:0.9em;">💡 提示：当前未启用自适应投注，建议在高级设置中开启（推荐ct=5）以利用偏差。</span>';
+    }
+  } else {
+    tvdEl.textContent = `—（需≥50局落点记录，当前${plays}局）`;
+    tvdEl.style.color = 'var(--muted)';
+    skewEl.textContent = '—';
+    skewEl.style.color = 'var(--muted)';
+    benefitEl.textContent = '—';
+    benefitVerdict.innerHTML = '记录更多落点数据后可获得策略收益预估。';
+    benefitVerdict.style.background = 'rgba(255,255,255,0.03)';
+  }
 }
 
 // ── EV Table ──
