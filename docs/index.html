@@ -375,6 +375,13 @@
     display: flex; align-items: center; justify-content: center;
   }
   .machine-card .mc-del:active { background: rgba(233,69,96,0.5); }
+  .machine-card .mc-copy {
+    width: 32px; height: 32px; border-radius: 50%; border: none;
+    background: rgba(78,205,196,0.2); color: var(--green);
+    font-size: 1em; cursor: pointer; flex-shrink: 0; margin-left: 6px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .machine-card .mc-copy:active { background: rgba(78,205,196,0.5); }
   .add-machine-row {
     display: flex; gap: 8px; margin-top: 10px;
   }
@@ -494,6 +501,13 @@
     <div>
       <label>单次最大获得卡数</label>
       <input type="number" id="inputJ" value="3" min="1" max="9999" inputmode="numeric">
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label>最多一次投珠数</label>
+      <input type="number" id="inputMaxBet" value="99" min="5" max="99" inputmode="numeric">
+      <div style="font-size:0.72em;color:var(--muted);margin-top:2px;">5~99，限制每局最多投入珠子数</div>
     </div>
   </div>
   <label>优先目标</label>
@@ -748,6 +762,37 @@ function addMachine() {
   showToast('已添加: ' + name);
 }
 
+function copyMachine(id) {
+  var newName = prompt('请输入副本名称：', id + '-副本');
+  if (!newName) return;
+  newName = newName.trim();
+  if (!newName) { showToast('名称不能为空'); return; }
+  var machines = getMachines();
+  var max = getMaxMachines();
+  if (machines.length >= max) {
+    showToast('已达机器数量限制 (' + max + ')，无法复制');
+    return;
+  }
+  if (machines.some(function(m) { return m.id === newName; })) { showToast('该名称已存在'); return; }
+  // Copy state + history
+  var stateRaw = null, histRaw = null;
+  try {
+    stateRaw = localStorage.getItem('pb_state_' + id);
+    if (stateRaw) localStorage.setItem('pb_state_' + newName, stateRaw);
+    histRaw = localStorage.getItem('pb_history_' + id);
+    if (histRaw) localStorage.setItem('pb_history_' + newName, histRaw);
+  } catch(e) {}
+  machines.push({ id: newName, createdAt: new Date().toLocaleString() });
+  saveMachines(machines);
+  // Push copied data to cloud
+  try {
+    if (stateRaw) cloudPushState(newName, JSON.parse(stateRaw));
+    if (histRaw) cloudPushHistory(newName, JSON.parse(histRaw));
+  } catch(e) {}
+  renderMachineList();
+  showToast('已复制为: ' + newName);
+}
+
 function deleteMachine(id) {
   if (!confirm('确定删除机器「' + id + '」及其所有数据？')) return;
   let machines = getMachines();
@@ -775,11 +820,11 @@ function selectMachine(id) {
     } catch(e) { gameHistory = []; }
     showPanel('game');
     document.getElementById('configSummary').textContent =
-      `[${id}] T=${s.T}  J=${s.J}  ${s.priority==='cards'?'积分卡优先':'珠子优先'}`;
+      `[${id}] T=${s.T}  J=${s.J}  最多投${s.maxBet}  ${s.priority==='cards'?'积分卡优先':'珠子优先'}`;
     buildMultButtons();
     buildSlotGrid();
     buildRecordGrid();
-    renderEVTable(PinballStrategy.expectedValueTable(s.T, s.J));
+    renderEVTable(PinballStrategy.expectedValueTable(s.T, s.J, s.maxBet));
     refreshProbs();
     renderHistory();
     initGameMode();
@@ -812,12 +857,18 @@ function renderMachineList() {
     const safe = escHtml(m.id);
     const s = PinballStrategy.load(m.id);
     const detail = s
-      ? `T=${s.T} J=${s.J} | ${s.totalPlays}局 | 投${s.totalMarblesIn} 出${s.totalMarblesOut}`
+      ? `T=${s.T} J=${s.J} 最多投${s.maxBet} | ${s.totalPlays}局 | 投${s.totalMarblesIn} 出${s.totalMarblesOut}`
       : '尚未配置';
     const card = document.createElement('div');
     card.className = 'machine-card';
     card.innerHTML = `<div class="mc-info"><div class="mc-name">${safe}</div><div class="mc-detail">${detail}</div></div>`;
     card.addEventListener('click', () => selectMachine(m.id));
+    const copy = document.createElement('button');
+    copy.className = 'mc-copy';
+    copy.textContent = '⧉';
+    copy.title = '复制机器';
+    copy.addEventListener('click', ev => { ev.stopPropagation(); copyMachine(m.id); });
+    card.appendChild(copy);
     const del = document.createElement('button');
     del.className = 'mc-del';
     del.textContent = '✕';
@@ -972,11 +1023,12 @@ function initMachine() {
   const J = parseInt(document.getElementById('inputJ').value) || 3;
   const priority = document.getElementById('inputPriority').value;
   const prior = parseFloat(document.getElementById('inputPrior').value) || 24;
+  const maxBet = Math.max(MIN_BET, Math.min(MAX_BET, parseInt(document.getElementById('inputMaxBet').value) || MAX_BET));
 
   if (T < 1 || J < 1) { showToast('T 和 J 必须 >= 1'); return; }
   if (!currentMachineId) { showToast('未选择机器'); return; }
 
-  strategy = new PinballStrategy(T, J, priority, prior);
+  strategy = new PinballStrategy(T, J, priority, prior, maxBet);
   strategy._save();
   gameHistory = [];
   try { localStorage.setItem('pb_history_' + currentMachineId, '[]'); } catch(e) {}
@@ -984,12 +1036,12 @@ function initMachine() {
 
   showPanel('game');
   document.getElementById('configSummary').textContent =
-    `[${currentMachineId}] T=${T}  J=${J}  ${priority==='cards'?'积分卡优先':'珠子优先'}`;
+    `[${currentMachineId}] T=${T}  J=${J}  最多投${maxBet}  ${priority==='cards'?'积分卡优先':'珠子优先'}`;
 
   buildMultButtons();
   buildSlotGrid();
   buildRecordGrid();
-  renderEVTable(PinballStrategy.expectedValueTable(T, J));
+  renderEVTable(PinballStrategy.expectedValueTable(T, J, maxBet));
   refreshProbs();
   renderHistory();
   initGameMode();
