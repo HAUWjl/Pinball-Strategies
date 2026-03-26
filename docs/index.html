@@ -38,18 +38,64 @@
       var url = (typeof input === 'string') ? input : (input instanceof Request ? input.url : String(input));
       var newUrl = rewriteUrl(url);
       if (newUrl) {
-        if (typeof input === 'string') return origFetch.call(this, newUrl, init);
-        return origFetch.call(this, new Request(newUrl, input), init);
+        // Convert form-encoded body to JSON for proxy compatibility
+        var newInit = init ? Object.assign({}, init) : {};
+        if (newInit.body && typeof newInit.body === 'string' && newInit.body.indexOf('=') > -1) {
+          var ct = '';
+          if (newInit.headers) {
+            if (newInit.headers instanceof Headers) ct = newInit.headers.get('content-type') || '';
+            else if (typeof newInit.headers === 'object') {
+              for (var hk in newInit.headers) { if (hk.toLowerCase() === 'content-type') ct = newInit.headers[hk]; }
+            }
+          }
+          if (ct.indexOf('x-www-form-urlencoded') > -1) {
+            var obj = {};
+            newInit.body.split('&').forEach(function(pair) {
+              var kv = pair.split('='); obj[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+            });
+            newInit.body = JSON.stringify(obj);
+            if (newInit.headers instanceof Headers) { newInit.headers.set('content-type', 'application/json'); }
+            else if (typeof newInit.headers === 'object') {
+              var newHeaders = {};
+              for (var hk2 in newInit.headers) {
+                newHeaders[hk2.toLowerCase() === 'content-type' ? 'content-type' : hk2] = newInit.headers[hk2];
+              }
+              newHeaders['content-type'] = 'application/json';
+              newInit.headers = newHeaders;
+            }
+          }
+        }
+        if (typeof input === 'string') return origFetch.call(this, newUrl, newInit);
+        return origFetch.call(this, new Request(newUrl, newInit), newInit);
       }
       return origFetch.call(this, input, init);
     };
     var origOpen = XMLHttpRequest.prototype.open;
+    var origSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function(method, url) {
+      this.__proxyUrl = null;
       if (typeof url === 'string') {
         var newUrl = rewriteUrl(url);
-        if (newUrl) arguments[1] = newUrl;
+        if (newUrl) { this.__proxyUrl = newUrl; arguments[1] = newUrl; }
       }
       return origOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function(body) {
+      // Convert form body to JSON when going through proxy
+      if (this.__proxyUrl && body && typeof body === 'string' && body.indexOf('=') > -1) {
+        var ct = '';
+        try { ct = this.getRequestHeader && this._headers ? '' : ''; } catch(e) {}
+        // Firebase SDK sends form data as string — detect and convert
+        if (body.indexOf('grant_type=') > -1 || body.indexOf('returnSecureToken=') > -1) {
+          var obj = {};
+          body.split('&').forEach(function(pair) {
+            var kv = pair.split('='); obj[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+          });
+          this.setRequestHeader('Content-Type', 'application/json');
+          return origSend.call(this, JSON.stringify(obj));
+        }
+      }
+      return origSend.call(this, body);
     };
     console.log('[Proxy] Firebase API proxy activated via /api/fb-proxy');
   };
