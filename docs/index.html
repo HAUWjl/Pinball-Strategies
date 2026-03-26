@@ -569,9 +569,15 @@
   <!-- 快速记录（记录模式） -->
   <div id="quickRecordPanel" class="card hidden">
     <h2>📝 快速记录落点</h2>
+    <p style="font-size:0.85em;color:var(--muted);margin-bottom:4px;">当前奖励倍数（可选）</p>
+    <div class="mult-row" id="recordMultRow" style="margin-bottom:10px;"></div>
     <p style="font-size:0.85em;color:var(--muted);margin-bottom:8px;">点击球落入的槽位直接记录 <button class="view-toggle-btn" onclick="toggleSlotView('quickRecordGrid',this)">↔ 横排</button></p>
     <div class="slot-grid" id="quickRecordGrid"></div>
     <button id="undoBtnRecord" class="btn-small btn-outline" style="color:var(--yellow);border-color:var(--yellow);display:none;margin-bottom:8px;" onclick="undoLastRecord()">↩ 撤回上一次记录</button>
+    <div id="multStatsBox" style="background:var(--accent);border-radius:var(--radius);padding:12px;margin-bottom:10px;">
+      <div style="font-size:0.85em;font-weight:700;margin-bottom:8px;">奖励倍数分布</div>
+      <div id="multStatsContent" style="font-size:0.82em;color:var(--muted);">暂无倍数记录</div>
+    </div>
     <div id="deviationBox" class="deviation-box">
       <div style="display:flex;justify-content:space-around;margin-bottom:10px;">
         <div style="text-align:center;">
@@ -903,6 +909,7 @@ let recordSlotSelected = null;
 let gameHistory = [];
 let currentGameMode = 'strategy';
 let lastRecordInfo = null;
+let recordMult = null;
 let userMaxMachines = LIMIT_LOGIN;
 
 // ── Migrate old single-machine data if present ──
@@ -1255,6 +1262,8 @@ function initGameMode() {
   }
   switchGameMode('strategy');
   buildQuickRecordGrid();
+  buildRecordMultRow();
+  updateMultStats();
 }
 
 function switchGameMode(mode) {
@@ -1271,6 +1280,7 @@ function switchGameMode(mode) {
     document.getElementById('evCard').classList.add('hidden');
     document.getElementById('quickRecordPanel').classList.remove('hidden');
     updateDeviation();
+    updateMultStats();
   }
 }
 
@@ -1288,10 +1298,59 @@ function buildQuickRecordGrid() {
   }
 }
 
+function buildRecordMultRow() {
+  const row = document.getElementById('recordMultRow');
+  if (!row) return;
+  row.innerHTML = '';
+  for (const m of [2,4,6,8,10]) {
+    const btn = document.createElement('div');
+    btn.className = 'mult-btn';
+    btn.textContent = m + 'x';
+    btn.dataset.mult = m;
+    btn.onclick = () => {
+      if (recordMult === m) { recordMult = null; btn.classList.remove('selected'); }
+      else { recordMult = m; row.querySelectorAll('.mult-btn').forEach(b => b.classList.toggle('selected', parseInt(b.dataset.mult) === m)); }
+    };
+    row.appendChild(btn);
+  }
+}
+
+function updateMultStats() {
+  const el = document.getElementById('multStatsContent');
+  if (!el) return;
+  var counts = {};
+  var total = 0;
+  for (var i = 0; i < gameHistory.length; i++) {
+    var h = gameHistory[i];
+    if (h.mult && h.mult > 0) { counts[h.mult] = (counts[h.mult] || 0) + 1; total++; }
+    else if (h.recordMult) { counts[h.recordMult] = (counts[h.recordMult] || 0) + 1; total++; }
+  }
+  if (total === 0) { el.innerHTML = '暂无倍数记录'; return; }
+  var mults = [2,4,6,8,10];
+  var html = '<div style="display:flex;flex-direction:column;gap:6px;">';
+  for (var j = 0; j < mults.length; j++) {
+    var m = mults[j];
+    var c = counts[m] || 0;
+    var pct = (c / total * 100).toFixed(1);
+    var barW = (c / total * 100).toFixed(0);
+    html += '<div style="display:flex;align-items:center;gap:8px;">';
+    html += '<span style="width:32px;text-align:right;font-weight:700;color:var(--text);">' + m + 'x</span>';
+    html += '<div style="flex:1;height:16px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">';
+    html += '<div style="height:100%;width:' + barW + '%;background:' + (m <= 4 ? 'var(--green)' : m <= 6 ? 'var(--yellow)' : 'var(--highlight)') + ';border-radius:4px;transition:width .3s;"></div>';
+    html += '</div>';
+    html += '<span style="width:55px;text-align:right;font-size:0.85em;">' + c + '次 ' + pct + '%</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
 function quickRecord(slot, btn) {
   if (!strategy) return;
   strategy.recordLanding(slot);
-  gameHistory.push({ mode: 'record', slot: slot + 1, time: new Date().toLocaleTimeString() });
+  var entry = { mode: 'record', slot: slot + 1, time: new Date().toLocaleTimeString() };
+  if (recordMult) entry.recordMult = recordMult;
+  gameHistory.push(entry);
   if (currentMachineId) {
     try { localStorage.setItem('pb_history_' + currentMachineId, JSON.stringify(gameHistory)); } catch(e) {}
     cloudPushHistory(currentMachineId, gameHistory);
@@ -1301,9 +1360,13 @@ function quickRecord(slot, btn) {
   btn.classList.remove('just-recorded');
   void btn.offsetWidth;
   btn.classList.add('just-recorded');
-  lastRecordInfo = { slot, bet: 0, mult: 0, isWin: false, marblesOut: 0, mode: 'record' };
+  lastRecordInfo = { slot, bet: 0, mult: recordMult || 0, isWin: false, marblesOut: 0, mode: 'record' };
   updateUndoButtons();
-  showToast('\u2713 槽位 ' + (slot + 1) + '（共 ' + strategy.totalPlays + ' 局）');
+  updateMultStats();
+  var msg = '\u2713 槽位 ' + (slot + 1);
+  if (recordMult) msg += ' (' + recordMult + 'x)';
+  msg += '（共 ' + strategy.totalPlays + ' 局）';
+  showToast(msg);
 }
 
 function undoLastRecord() {
