@@ -14,3 +14,4 @@ docs/codes_batch.txt
 
 # 核心算法源码不上传（只上传混淆后的 core.min.js）
 docs/core.js
+docs/vercel_bak.json

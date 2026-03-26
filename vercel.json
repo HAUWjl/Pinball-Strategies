@@ -1,6 +1,9 @@
 {
   "outputDirectory": "docs",
   "functions": {
-    "api/fb-proxy.js": { "maxDuration": 10 }
-  }
+    "api/*.js": { "maxDuration": 10 }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" }
+  ]
 }
