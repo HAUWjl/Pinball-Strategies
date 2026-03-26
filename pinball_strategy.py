@@ -340,7 +340,7 @@ class PinballStrategy:
           Higher confidence → we trust the positive-EV signal more → bet bigger.
         """
         # Minimum bet that earns exactly 1 card on a win
-        n_floor = max(MIN_BET, math.ceil(self.T / multiplier))
+        n_floor = min(max(MIN_BET, math.ceil(self.T / multiplier)), self.max_bet)
 
         ev_ratio = multiplier * p_win
 

@@ -92,6 +92,7 @@ def run_simulation(
     verbose: bool = True,
     confidence_threshold: float = 0.0,
     max_rounds: int = 10000,
+    max_bet: int = MAX_BET,
 ) -> dict:
     """
     运行自动模拟。
@@ -116,6 +117,8 @@ def run_simulation(
         自适应投注的信心阈值。0=原始策略，>0=渐进式投注。
     max_rounds : int
         最大局数上限，防止在正EV策略下游戏无限延长。默认10000。
+    max_bet : int
+        每局最大投注珠数。默认99。
 
     Returns
     -------
@@ -125,7 +128,8 @@ def run_simulation(
     rng = random.Random(seed)
     hole_probs = normalize_probs(hole_probs)
     strategy = PinballStrategy(T=T, J=J, priority=priority,
-                               confidence_threshold=confidence_threshold)
+                               confidence_threshold=confidence_threshold,
+                               max_bet=max_bet)
 
     marbles_remaining = initial_marbles
     total_marbles_spent = 0

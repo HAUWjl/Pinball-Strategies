@@ -58,7 +58,7 @@ J_DEFAULT = 10
 T_DEFAULT = 20
 PRIORITIES = ["cards", "marbles"]
 N_SEEDS = 30
-CONFIDENCE_THRESHOLD = 20.0  # 使用自适应策略
+CONFIDENCE_THRESHOLD = 0.0  # 使用原始策略（更清晰展示max_bet的影响）
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -209,6 +209,7 @@ def run_batch(max_bet, priority, hole_probs, n_seeds, ct=0.0):
             verbose=False,
             confidence_threshold=ct,
             max_rounds=10000,
+            max_bet=max_bet,
         )
         results.append(r)
 
