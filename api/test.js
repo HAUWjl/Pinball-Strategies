@@ -1,3 +1,3 @@
 module.exports = (req, res) => {
-  res.status(200).json({ ok: true, time: Date.now(), query: req.query });
+  res.status(200).json({ version: 'v3', time: Date.now(), q: req.query });
 };
