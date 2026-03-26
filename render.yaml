@@ -1,8 +1,11 @@
 services:
   - type: web
     name: pinball-strategy
-    runtime: static
-    buildCommand: ""
-    staticPublishPath: ./docs
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app"
     branch: main
     pullRequestPreviewsEnabled: false
+    envVars:
+      - key: PORT
+        value: "10000"
