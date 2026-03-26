@@ -89,4 +89,3 @@ module.exports = async function handler(req, res) {
     res.status(502).json({ error: 'Proxy upstream error', message: err.message });
   }
 };
-}
