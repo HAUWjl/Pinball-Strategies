@@ -177,14 +177,17 @@ class TestOptimalBetMarbles:
 class TestOptimalBetCards:
     def test_optimal_bet_formula(self):
         """
-        For card priority, optimal_bet = max(MIN_BET, min(99, ceil(T*J/mult))).
+        For card priority, the optimal bet maximises cards-per-marble
+        efficiency across all card tiers k=1..J.
         """
         T, J = 20, 100
         s = PinballStrategy(T=T, J=J, priority="cards")
+        # With T=20, J=100, all step-aligned bets have equal efficiency;
+        # the algorithm picks the smallest (k=1 tier).
+        expected = {2: 10, 4: 5, 6: 10, 8: 5, 10: 6}
         for mult in DEFAULT_MULTIPLIER_SLOTS:
-            expected = max(MIN_BET, min(MAX_BET, math.ceil(T * J / mult)))
             got = s.optimal_bet(mult, list(range(DEFAULT_MULTIPLIER_SLOTS[mult])))
-            assert got == expected, f"mult={mult}: expected {expected}, got {got}"
+            assert got == expected[mult], f"mult={mult}: expected {expected[mult]}, got {got}"
 
     def test_card_bet_at_least_MIN_BET(self):
         # ceil(T*J/mult) < MIN_BET → clamp to MIN_BET
@@ -195,19 +198,21 @@ class TestOptimalBetCards:
 
     def test_card_bet_at_most_max(self):
         s = PinballStrategy(T=20, J=9999, priority="cards")
-        # ceil(20*9999/2)=99990 > 99 → clamp to 99
+        # The optimal step-aligned bet is 10 (1 card, eff=0.1),
+        # which is more efficient than 99 (9 cards, eff≈0.091).
         bet = s.optimal_bet(2, [0, 1, 2, 3])
-        assert bet == MAX_BET
+        assert bet <= MAX_BET
+        assert bet == 10
 
     def test_card_bet_typical_machine(self):
-        # T=20, J=10: optimal N per multiplier
+        # T=20, J=10: optimal N per multiplier (best cards-per-marble)
         s = PinballStrategy(T=20, J=10, priority="cards")
-        # 2x: ceil(20*10/2)=100 → clamped to 99
-        assert s.optimal_bet(2, [0, 1, 2, 3]) == 99
-        # 4x: ceil(20*10/4)=50
-        assert s.optimal_bet(4, [0, 1, 2]) == 50
-        # 10x: ceil(20*10/10)=20
-        assert s.optimal_bet(10, [0]) == 20
+        # 2x: n=10 (1 card, eff=0.1) beats n=99 (9 cards, eff≈0.091)
+        assert s.optimal_bet(2, [0, 1, 2, 3]) == 10
+        # 4x: n=5 (1 card, eff=0.2)
+        assert s.optimal_bet(4, [0, 1, 2]) == 5
+        # 10x: n=6 (3 cards, eff=0.5)
+        assert s.optimal_bet(10, [0]) == 6
 
 
 # ── Recommend ─────────────────────────────────────────────────────────────────
@@ -278,9 +283,18 @@ class TestExpectedValueTable:
     def test_card_optimal_bet_formula(self):
         T, J = 20, 100
         rows = PinballStrategy.expected_value_table(T=T, J=J)
+        # Verify that each recommended bet is actually optimal (no better eff exists)
         for r in rows:
-            expected = max(MIN_BET, min(MAX_BET, math.ceil(T * J / r["multiplier"])))
-            assert r["card_optimal_bet"] == expected
+            n = r["card_optimal_bet"]
+            mult = r["multiplier"]
+            eff = min(mult * n // T, J) / n
+            # Check no other bet in [MIN_BET, MAX_BET] is strictly better
+            for n2 in range(MIN_BET, MAX_BET + 1):
+                eff2 = min(mult * n2 // T, J) / n2
+                assert eff2 <= eff + 1e-9, (
+                    f"mult={mult}: bet {n} (eff={eff:.4f}) is not optimal; "
+                    f"bet {n2} has eff={eff2:.4f}"
+                )
 
 
 # ── Custom multiplier_slots ───────────────────────────────────────────────────
@@ -310,8 +324,8 @@ class TestAdaptiveV2:
         """ct=0 should use the original (non-adaptive) strategy."""
         s = PinballStrategy(T=20, J=10, priority="cards", confidence_threshold=0)
         bet = s.optimal_bet(2, [0, 1, 2, 3])
-        # Original: ceil(20*10/2) = 100 → clamped to 99
-        assert bet == MAX_BET
+        # Optimal: n=10 (1 card, eff=0.1)
+        assert bet == 10
 
     def test_negative_ev_always_bets_floor(self):
         """With negative EV, V2 should always bet n_floor regardless of confidence."""
@@ -354,16 +368,17 @@ class TestAdaptiveV2:
         for mult, lit in [(2, [0,1,2,3]), (4, [0,1,2]), (6, [0,1]), (10, [0])]:
             assert s5.optimal_bet(mult, lit) == s10.optimal_bet(mult, lit)
 
-    def test_j5_original_strategy_uses_lower_bets(self):
-        """Original (ct=0) with J=5 bets less than J=10 due to lower card cap."""
+    def test_j5_original_strategy_uses_same_efficiency(self):
+        """Original (ct=0): with T=20, step-aligned bets have equal eff.
+        Both J=5 and J=10 pick the smallest optimal bet."""
         s5 = PinballStrategy(T=20, J=5, priority="cards", confidence_threshold=0)
         s10 = PinballStrategy(T=20, J=10, priority="cards", confidence_threshold=0)
-        # J=5, 2x: ceil(100/2) = 50; J=10, 2x: ceil(200/2) = 100 → 99
-        assert s5.optimal_bet(2, [0, 1, 2, 3]) == 50
-        assert s10.optimal_bet(2, [0, 1, 2, 3]) == 99
-        # J=5, 4x: ceil(100/4) = 25; J=10, 4x: ceil(200/4) = 50
-        assert s5.optimal_bet(4, [0, 1, 2]) == 25
-        assert s10.optimal_bet(4, [0, 1, 2]) == 50
+        # 2x: n=10 (eff=0.1) for both J=5 and J=10
+        assert s5.optimal_bet(2, [0, 1, 2, 3]) == 10
+        assert s10.optimal_bet(2, [0, 1, 2, 3]) == 10
+        # 4x: n=5 (eff=0.2) for both
+        assert s5.optimal_bet(4, [0, 1, 2]) == 5
+        assert s10.optimal_bet(4, [0, 1, 2]) == 5
 
     def test_j5_positive_ev_still_ramps_to_max(self):
         """With J=5 under positive EV, V2 still ramps to MAX_BET for marble generation."""

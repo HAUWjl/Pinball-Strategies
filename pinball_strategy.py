@@ -71,6 +71,7 @@ class PinballStrategy:
         multiplier_slots: Optional[Dict[int, int]] = None,
         prior_weight: float = 24.0,
         confidence_threshold: float = 0.0,
+        max_bet: int = MAX_BET,
     ) -> None:
         if T < 1:
             raise ValueError(f"T must be at least 1, got {T}")
@@ -82,10 +83,13 @@ class PinballStrategy:
             raise ValueError(f"prior_weight must be >= 0, got {prior_weight}")
         if confidence_threshold < 0:
             raise ValueError(f"confidence_threshold must be >= 0, got {confidence_threshold}")
+        if not (MIN_BET <= max_bet <= MAX_BET):
+            raise ValueError(f"max_bet must be between {MIN_BET} and {MAX_BET}, got {max_bet}")
 
         self.T = T
         self.J = J
         self.priority = priority
+        self.max_bet = max_bet
         self.multiplier_slots: Dict[int, int] = (
             multiplier_slots if multiplier_slots is not None else dict(DEFAULT_MULTIPLIER_SLOTS)
         )
@@ -157,7 +161,8 @@ class PinballStrategy:
             0-indexed indices of the currently lit slots.
         """
         probs = self.get_landing_probs()
-        return sum(probs[s] for s in lit_slots if 0 <= s < NUM_SLOTS)
+        unique_slots = set(s for s in lit_slots if 0 <= s < NUM_SLOTS)
+        return sum(probs[s] for s in unique_slots)
 
     def optimal_bet(self, multiplier: int, lit_slots: List[int]) -> int:
         """
@@ -208,14 +213,15 @@ class PinballStrategy:
         bet = self.optimal_bet(multiplier, lit_slots)
         expected_marbles = multiplier * bet * p_win
         expected_cards = p_win * min(multiplier * bet // self.T, self.J)
-        roi = expected_marbles / bet if bet > 0 else 0.0
+        expected_marbles_rounded = round(expected_marbles, 2)
+        roi = expected_marbles_rounded / bet if bet > 0 else 0.0
 
         return {
             "multiplier": multiplier,
             "lit_slots": lit_slots,
             "win_probability": round(p_win, 4),
             "optimal_bet": bet,
-            "expected_marble_return": round(expected_marbles, 2),
+            "expected_marble_return": expected_marbles_rounded,
             "expected_score_cards": round(expected_cards, 4),
             "marble_roi": round(roi, 4),
         }
@@ -229,6 +235,7 @@ class PinballStrategy:
         T: int,
         J: int,
         multiplier_slots: Optional[Dict[int, int]] = None,
+        max_bet: int = MAX_BET,
     ) -> List[dict]:
         """
         Build an expected-value analysis table for each multiplier,
@@ -236,6 +243,7 @@ class PinballStrategy:
 
         Useful for understanding the baseline characteristics of the machine.
         """
+        mb = max(MIN_BET, min(MAX_BET, max_bet))
         ms = multiplier_slots if multiplier_slots is not None else DEFAULT_MULTIPLIER_SLOTS
         rows = []
         for mult, n_lit in sorted(ms.items()):
@@ -244,9 +252,17 @@ class PinballStrategy:
             # --- Marble priority: bet MIN_BET (minimum) ---
             ev_marbles_per_marble = mult * p_win
 
-            # --- Card priority: smallest N that reaches the J-card cap ---
-            # score_cards(N) = min(floor(N*mult/T), J); cap reached when N >= ceil(T*J/mult)
-            n_card = max(MIN_BET, min(MAX_BET, math.ceil(T * J / mult)))
+            # --- Card priority: find the bet with best cards-per-marble ---
+            n_card = max(MIN_BET, min(mb, math.ceil(T * J / mult)))
+            best_eff = 0.0
+            for k in range(1, J + 1):
+                n = max(MIN_BET, math.ceil(k * T / mult))
+                if n > mb:
+                    break
+                eff = k / n
+                if eff > best_eff:
+                    best_eff = eff
+                    n_card = n
             cards_per_marble = p_win * min(mult * n_card // T, J) / n_card if n_card else 0
 
             rows.append(
@@ -269,12 +285,12 @@ class PinballStrategy:
         """
         Marble-priority bet calculation.
 
-        Bet the maximum (99) only when the expected return exceeds the input.
+        Bet the maximum (max_bet) only when the expected return exceeds the input.
         Otherwise bet the minimum (MIN_BET) to limit losses.
         """
         ev_ratio = multiplier * p_win
         if ev_ratio > 1.0:
-            return MAX_BET
+            return self.max_bet
         return MIN_BET
 
     def _bet_for_cards(self, multiplier: int) -> int:
@@ -282,15 +298,22 @@ class PinballStrategy:
         Card-priority bet calculation.
 
         score_cards(N) = min(floor(N × mult / T), J).
-        The per-marble card yield is maximised at the smallest N that reaches
-        the cap J, i.e. N × mult / T ≥ J → N ≥ T × J / mult.
-        Therefore N* = ceil(T × J / mult), clamped to [MIN_BET, MAX_BET].
-
-        This calculation is independent of the win probability because the
-        optimal N is determined solely by the cap constraint and the multiplier.
+        Due to floor-division rounding, the highest cards-per-marble
+        efficiency is not always at the J-card cap.  We check every
+        card tier k = 1 … J and pick the bet with the best k/N ratio.
+        Complexity is O(J), which is negligible.
         """
-        n_optimal = math.ceil(self.T * self.J / multiplier)
-        return max(MIN_BET, min(MAX_BET, n_optimal))
+        best_n = max(MIN_BET, min(self.max_bet, math.ceil(self.T * self.J / multiplier)))
+        best_eff = 0.0
+        for k in range(1, self.J + 1):
+            n = max(MIN_BET, math.ceil(k * self.T / multiplier))
+            if n > self.max_bet:
+                break
+            eff = k / n
+            if eff > best_eff:
+                best_eff = eff
+                best_n = n
+        return best_n
 
     # ------------------------------------------------------------------
     # Adaptive (confidence-aware) betting
@@ -328,8 +351,8 @@ class PinballStrategy:
         # Positive EV: worth betting big (we gain marbles AND cards).
         # Scale with confidence to avoid overcommitting on noisy estimates.
         conf = self._confidence()
-        bet = n_floor + round(conf * (MAX_BET - n_floor))
-        return max(MIN_BET, min(MAX_BET, bet))
+        bet = n_floor + round(conf * (self.max_bet - n_floor))
+        return max(MIN_BET, min(self.max_bet, bet))
 
     def _bet_for_marbles_adaptive(self, multiplier: int, p_win: float) -> int:
         """
@@ -347,8 +370,8 @@ class PinballStrategy:
         if ev_ratio <= 1.0:
             return MIN_BET
         if ev_ratio >= threshold:
-            return MAX_BET
+            return self.max_bet
 
         # Between 1.0 and threshold: scale proportionally
         fraction = (ev_ratio - 1.0) / max(0.01, threshold - 1.0) * conf
-        return max(MIN_BET, min(MAX_BET, MIN_BET + round(fraction * (MAX_BET - MIN_BET))))
+        return max(MIN_BET, min(self.max_bet, MIN_BET + round(fraction * (self.max_bet - MIN_BET))))

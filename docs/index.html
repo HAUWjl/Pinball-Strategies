@@ -535,6 +535,24 @@
     <div style="font-size:0.75em;color:var(--muted);margin-top:4px;line-height:1.5;">
       先验强度 = 半信任局数：观测达到此局数后，实际数据权重占 50%。值越大，前期越依赖均匀假设；值越小，越快信任实际观测。
     </div>
+    <div class="row" style="margin-top:8px;">
+      <div>
+        <label>自适应投注</label>
+        <select id="inputAdaptive" onchange="document.getElementById('adaptiveThresholdRow').style.display = this.value==='on' ? 'flex' : 'none';">
+          <option value="off">关闭（经典策略）</option>
+          <option value="on">开启</option>
+        </select>
+      </div>
+    </div>
+    <div id="adaptiveThresholdRow" class="row" style="display:none;margin-top:6px;">
+      <div>
+        <label>置信阈值</label>
+        <input type="number" id="inputConfThreshold" value="50" min="1" max="9999" inputmode="numeric">
+      </div>
+    </div>
+    <div style="font-size:0.75em;color:var(--muted);margin-top:4px;line-height:1.5;">
+      自适应投注：数据不足时保守投注（小注试探），随局数增加逐步加码。置信阈值 = 达到该局数时置信度为 50%。
+    </div>
   </div>
   <button class="btn-primary" onclick="initMachine()">开始使用</button>
 </div>
@@ -629,6 +647,10 @@
       <div class="result-row">
         <span class="result-label">珠子ROI</span>
         <span class="result-value" id="resROI"></span>
+      </div>
+      <div class="result-row" id="resConfRow" style="display:none;">
+        <span class="result-label">置信度</span>
+        <span class="result-value" id="resConfidence"></span>
       </div>
     </div>
     <div id="resTip" class="tip"></div>
@@ -825,8 +847,9 @@ function selectMachine(id) {
       else gameHistory = [];
     } catch(e) { gameHistory = []; }
     showPanel('game');
+    const adaptiveTag = s.confidenceThreshold > 0 ? `  自适应(${s.confidenceThreshold})` : '';
     document.getElementById('configSummary').textContent =
-      `[${id}] T=${s.T}  J=${s.J}  最多投${s.maxBet}  ${s.priority==='cards'?'积分卡优先':'珠子优先'}`;
+      `[${id}] T=${s.T}  J=${s.J}  最多投${s.maxBet}  ${s.priority==='cards'?'积分卡优先':'珠子优先'}${adaptiveTag}`;
     buildMultButtons();
     buildSlotGrid();
     buildRecordGrid();
@@ -1031,19 +1054,22 @@ function initMachine() {
   const priority = document.getElementById('inputPriority').value;
   const prior = parseFloat(document.getElementById('inputPrior').value) || 24;
   const maxBet = Math.max(MIN_BET, Math.min(MAX_BET, parseInt(document.getElementById('inputMaxBet').value) || MAX_BET));
+  const adaptiveOn = document.getElementById('inputAdaptive').value === 'on';
+  const confThreshold = adaptiveOn ? Math.max(1, parseInt(document.getElementById('inputConfThreshold').value) || 50) : 0;
 
   if (T < 1 || J < 1) { showToast('T 和 J 必须 >= 1'); return; }
   if (!currentMachineId) { showToast('未选择机器'); return; }
 
-  strategy = new PinballStrategy(T, J, priority, prior, maxBet);
+  strategy = new PinballStrategy(T, J, priority, prior, maxBet, confThreshold);
   strategy._save();
   gameHistory = [];
   try { localStorage.setItem('pb_history_' + currentMachineId, '[]'); } catch(e) {}
   cloudPushHistory(currentMachineId, []);
 
   showPanel('game');
+  const adaptiveTag = confThreshold > 0 ? `  自适应(${confThreshold})` : '';
   document.getElementById('configSummary').textContent =
-    `[${currentMachineId}] T=${T}  J=${J}  最多投${maxBet}  ${priority==='cards'?'积分卡优先':'珠子优先'}`;
+    `[${currentMachineId}] T=${T}  J=${J}  最多投${maxBet}  ${priority==='cards'?'积分卡优先':'珠子优先'}${adaptiveTag}`;
 
   buildMultButtons();
   buildSlotGrid();
@@ -1163,6 +1189,17 @@ function getRecommendation() {
   document.getElementById('resExpCards').textContent = rec.expectedScoreCards.toFixed(4);
   document.getElementById('resROI').textContent = rec.marbleRoi.toFixed(4);
 
+  // Show confidence when adaptive is enabled
+  const confRow = document.getElementById('resConfRow');
+  if (strategy.confidenceThreshold > 0) {
+    const conf = strategy._confidence();
+    confRow.style.display = '';
+    document.getElementById('resConfidence').textContent =
+      (conf * 100).toFixed(1) + '%  (' + strategy.totalPlays + '/' + (strategy.totalPlays + strategy.confidenceThreshold) + ')';
+  } else {
+    confRow.style.display = 'none';
+  }
+
   const tip = document.getElementById('resTip');
   if (rec.marbleRoi > 1) {
     tip.className = 'tip tip-good';
@@ -1178,6 +1215,11 @@ function getRecommendation() {
       tip.className = 'tip tip-bad';
       tip.textContent = '✗ 珠子期望亏损，但这是积分卡最优投珠数';
     }
+  }
+
+  // Adaptive tip enhancement
+  if (strategy.confidenceThreshold > 0 && strategy._confidence() < 0.5) {
+    tip.textContent += '（数据不足，当前保守投注）';
   }
 
   recordSlotSelected = null;
