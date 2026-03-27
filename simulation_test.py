@@ -53,15 +53,16 @@ def normalize_probs(probs: List[float]) -> List[float]:
     return [p / total for p in probs]
 
 
-def roll_multiplier(rng: random.Random) -> int:
+def roll_multiplier(rng: random.Random, mult_probs: dict | None = None) -> int:
     """根据固有概率随机抽取本轮奖励倍数。"""
+    probs = mult_probs if mult_probs is not None else MULTIPLIER_PROBS
     r = rng.random()
     cumulative = 0.0
-    for mult, prob in MULTIPLIER_PROBS.items():
+    for mult, prob in probs.items():
         cumulative += prob
         if r < cumulative:
             return mult
-    return list(MULTIPLIER_PROBS.keys())[-1]  # 兜底
+    return list(probs.keys())[-1]  # 兜底
 
 
 def roll_lit_slots(multiplier: int, rng: random.Random) -> List[int]:
@@ -93,6 +94,7 @@ def run_simulation(
     confidence_threshold: float = 0.0,
     max_rounds: int = 10000,
     max_bet: int = MAX_BET,
+    mult_probs: dict | None = None,
 ) -> dict:
     """
     运行自动模拟。
@@ -159,7 +161,7 @@ def run_simulation(
         total_rounds += 1
 
         # 1. 机器随机确定倍数
-        multiplier = roll_multiplier(rng)
+        multiplier = roll_multiplier(rng, mult_probs)
 
         # 2. 随机确定哪些灯亮
         lit_slots = roll_lit_slots(multiplier, rng)
